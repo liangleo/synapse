@@ -73,13 +73,13 @@ export const BACKENDS = [
   { value: 'http://127.0.0.1:3181', label: 'host（:3181）' },
 ]
 
-// 统一指令发送：卡片按钮与指令栏共用
+// 统一指令发送：卡片按钮与指令栏共用（task.assigned/review.requested 的内容来自指令栏文本框）
 export async function sendCommand(type: string, to: string): Promise<void> {
   try {
     const r = await api('/command', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type, to, taskId: conn.taskId || undefined }),
+      body: JSON.stringify({ type, to, text: store.cmd.text || undefined, taskId: conn.taskId || undefined }),
     })
     store.status = r.ok ? `指令已发送：${type} → ${to}` : `指令失败：${await r.text()}`
     store.statusOk = r.ok

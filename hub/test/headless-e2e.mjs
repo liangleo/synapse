@@ -140,6 +140,22 @@ await sleep(150)
 const last2 = JSON.parse(readFileSync(join(stateDir, 'last-args.json'), 'utf8'))
 check('续跑带 --session-id（会话连续）', last2.passedSid === sid1, JSON.stringify(last2))
 
+// 3.5 面板 /command 派发必须携带指令文本（回归：conn.ts 曾漏发 text 字段，任务内容恒为空）
+await api('/command', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ type: 'task.assigned', to: 'architect', text: '面板派发内容' }),
+})
+await sleep(300)
+const st = await callTool('task_status', {})
+const pj = (st.structuredContent?.jobs ?? []).find(
+  (x) => x.role === 'architect' && x.jobId !== jobId && x.jobId !== d2.structuredContent?.jobId,
+)
+check('面板 /command 产生新作业', Boolean(pj), JSON.stringify(st.structuredContent?.jobs))
+const plg = await rpc('resources/read', { uri: `panel://jobs/${pj?.jobId}/log` })
+check('面板派发的指令内容送达作业', (plg.result?.contents?.[0]?.text ?? '').includes('面板派发内容'), plg.result?.contents?.[0]?.text)
+await callTool('task_wait', { jobIds: [pj?.jobId], until: 'all', timeoutSec: 15 })
+
 // 4. L1 steer：UNSUPPORTED 提示重新派发
 const d3 = await callTool('task_dispatch', { role: 'dev-a', instruction: 'sleep 一下等中断' })
 const jobId3 = d3.structuredContent?.jobId
