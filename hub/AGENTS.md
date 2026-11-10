@@ -16,8 +16,10 @@ src/
   adapters/dsh.ts     dsh 真实适配器：转插件 HTTP（POST /command、SSE /events、2s 重连）；turn.ended → 作业状态机；DSH_PANEL_URL/DSH_PANEL_TOKEN 接入
   adapters/dsh-headless.ts  dsh-headless 适配器：spawn `dsh --profile headless --json`（无 desktop，L1）；NDJSON 事件流 → PanelEvent；role→sessionId 映射自管（HUB_HEADLESS_STATE）
   dsh-logs.ts         headless 模式下 hub 自服务历史会话：扫描/解析 ~/.dsh/sessions 的 zstd 多帧 session.v4.jsonl.zstd
+  mode.ts             dsh 接入模式持久化（hub-mode.json）：面板切换后重启仍生效，env 只作初始默认
+  presets.ts          预设管理（headless 自服务）：与 desktop 插件共用 ~/.synapse-agent-panel/presets.json，角色从激活预设解析，预设变更后重注册
   mcp/server.ts       7 个工具 + panel://jobs/{id}/log 资源模板 + instructions
-  http.ts             面板 HTTP：SSE /events、/meta、/logs、/command（人工操作）、静态面板；headless 时 /history、/role-session 本地服务
+  http.ts             面板 HTTP：SSE /events、/meta、/logs、/mode（模式查询/切换）、/command（人工操作）、静态面板；headless 时 /history、/role-session、/presets 本地服务
 ```
 
 ## 命令
@@ -35,10 +37,17 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 ## 环境变量
 
 - `HUB_PORT`（默认 3182）、`HUB_TOKEN`（默认随机生成，见启动 stderr）
-- `DSH_HEADLESS_ROLES`（headless 接入，设置即启用：`"architect:架构师,dev-a"`，同名 mock 角色就地升级；优先级高于 DSH_PANEL_URL）、`DSH_HEADLESS_CMD`（默认 `dsh --profile headless --json`，远程机器写 `ssh <host> dsh …`）、`HUB_HEADLESS_STATE`（role→sessionId 映射文件）
+- `DSH_HEADLESS_ROLES`（headless 接入，设置即启用：`"architect:架构师,dev-a"`，同名 mock 角色就地升级；优先级高于 DSH_PANEL_URL）、`DSH_HEADLESS_CMD`（默认 `dsh --profile headless --json`，远程机器写 `ssh <host> dsh …`）、`HUB_HEADLESS_STATE`（role→sessionId 映射文件）、`HUB_MODE_STATE`（模式选择持久化文件）
 - `DSH_PANEL_URL`（desktop 插件接入并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
 - `DSH_SESSIONS_DIR`（默认 ~/.dsh/sessions，headless 历史 API 读取，测试可覆盖）
 - `PANEL_DIST` 默认 `../../dist/static`（仓库根 pnpm build 的产物）
+
+## dsh 接入模式（运行中切换）
+
+- `GET /mode` → `{mode: mock|headless|plugin, roles}`；`POST /mode {mode}` 切换
+- 启动优先级：hub-mode.json 持久化 > DSH_HEADLESS_ROLES > DSH_PANEL_URL；切换会重注册角色（同名 mock 就地升级、不在新清单的 dsh 角色回退默认 mock 定义）
+- **角色统一从预设维护**：headless 角色来自激活预设（presets.json，与 desktop 插件同一份文件；无预设时回退 DSH_HEADLESS_ROLES）。hub 自服务 GET/PUT/DELETE /presets、POST /preset/active，保存/切换预设后自动重注册角色
+- 有 running/queued 作业时：模式切换被拒（400）、预设变更被拒（409）——重注册会让在途作业没人收尾；面板切换成功后整页重载
 
 ## dsh-headless 凭据（部署新机器时）
 

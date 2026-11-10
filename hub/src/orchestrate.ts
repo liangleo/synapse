@@ -3,8 +3,11 @@
 // 每角色默认并发 1，多余作业排队、前序结束自动启动；L1 角色 steer 返回 UNSUPPORTED 而非静默失败。
 import { createJob, getJob, listJobs, findByClientRequestId, setJobState, addJobLog, onJobStateChange } from './jobs.js'
 import { createMockAdapter, type Adapter } from './adapters/mock.js'
-import { createDshAdapter } from './adapters/dsh.js'
-import { createDshHeadlessAdapter } from './adapters/dsh-headless.js'
+import { createDshAdapter, startDshEvents } from './adapters/dsh.js'
+import { createDshHeadlessAdapter, parseHeadlessRoles } from './adapters/dsh-headless.js'
+import { defaultRoleOf } from './registry.js'
+import { saveMode, type ModeName } from './mode.js'
+import { activePresetRoles } from './presets.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'
 import type { Job, RoleDef } from './types.js'
@@ -28,11 +31,65 @@ function upsertRole(role: RoleDef, adapter: Adapter): void {
 // dsh 真实角色：来自插件 /meta 的角色列表
 export function registerDshRoles(list: { name: string; label?: string }[]): void {
   for (const r of list) upsertRole({ name: r.name, harness: 'dsh', level: 'L2', label: r.label ?? r.name }, createDshAdapter())
+  if (list.length) mode = 'plugin'
 }
 
 // dsh-headless 角色：无 desktop，spawn `dsh --profile headless --json` 跑一次性任务（L1，无运行中 steer）
 export function registerHeadlessRoles(list: { name: string; label?: string }[]): void {
   for (const r of list) upsertRole({ name: r.name, harness: 'dsh', level: 'L1', label: r.label ?? r.name }, createDshHeadlessAdapter())
+  if (list.length) mode = 'headless'
+}
+
+// ---------- dsh 接入模式（运行中可切换，面板 POST /mode 驱动） ----------
+// mock=纯模拟；headless=spawn dsh CLI；plugin=desktop 插件。选择持久化到 mode.ts 的配置文件。
+let mode: ModeName = 'mock'
+export function currentMode(): ModeName {
+  return mode
+}
+
+// 切换模式：重建 harness=dsh 的真实角色（不在新清单的回退默认 mock 定义，无默认则移除）。
+// 有 running/queued 作业时拒绝——切换会换掉适配器，在途作业没人收尾。
+export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Promise<{ mode: ModeName; roles: { name: string; label: string }[] }> {
+  if (listJobs().some((j) => j.state === 'running' || j.state === 'queued'))
+    throw new Error('存在 running/queued 作业，请等作业收尾后再切换模式')
+  let targets: { name: string; label: string }[] = []
+  if (opts.mode === 'headless') {
+    // 角色维护口径统一在预设：优先激活预设的 roles，无预设文件时回退 DSH_HEADLESS_ROLES
+    targets = activePresetRoles()
+    if (!targets.length) targets = parseHeadlessRoles(process.env.DSH_HEADLESS_ROLES ?? '')
+    if (!targets.length) throw new Error('headless 模式需要角色：在预设编辑里维护角色并激活预设（或设 DSH_HEADLESS_ROLES）')
+  } else if (opts.mode === 'plugin') {
+    const base = process.env.DSH_PANEL_URL
+    if (!base) throw new Error('未配置 DSH_PANEL_URL，无法接入 desktop 插件')
+    const res = await fetch(`${base}/meta`)
+    if (!res.ok) throw new Error(`dsh 插件不可达（HTTP ${res.status}）：desktop 开着吗？`)
+    const meta = (await res.json()) as { roles?: { name: string; label?: string }[] }
+    targets = (meta.roles ?? [])
+      .filter((r) => r.name && r.name !== 'master')
+      .map((r) => ({ name: r.name, label: r.label ?? r.name }))
+  }
+  const names = new Set(targets.map((t) => t.name))
+  for (let i = roles.length - 1; i >= 0; i--) {
+    const r = roles[i]
+    if (r.harness !== 'dsh' || names.has(r.name)) continue
+    const def = defaultRoleOf(r.name)
+    if (def) {
+      roles[i] = { ...def }
+      adapters.set(def.name, createMockAdapter(def))
+    } else {
+      roles.splice(i, 1)
+      adapters.delete(r.name)
+    }
+  }
+  mode = opts.mode
+  if (opts.mode === 'headless') registerHeadlessRoles(targets)
+  else if (opts.mode === 'plugin') {
+    registerDshRoles(targets)
+    startDshEvents()
+  }
+  saveMode(opts.mode)
+  hubLog('INFO', `dsh 接入模式 → ${opts.mode}（角色 ${targets.map((t) => t.name).join(' / ') || '无'}）`)
+  return { mode: opts.mode, roles: targets }
 }
 
 // 作业结束（终态）后启动该角色队列中的下一个排队作业

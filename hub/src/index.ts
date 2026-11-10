@@ -6,11 +6,12 @@ import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { startHttp } from './http.js'
 import { startMcp } from './mcp/server.js'
-import { registerAdapters, registerDshRoles, registerHeadlessRoles } from './orchestrate.js'
+import { registerAdapters, registerDshRoles, registerHeadlessRoles, applyMode } from './orchestrate.js'
 import { startDshEvents } from './adapters/dsh.js'
 import { parseHeadlessRoles, CMD as HEADLESS_CMD } from './adapters/dsh-headless.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'
+import { loadMode } from './mode.js'
 
 const port = Number(process.env.HUB_PORT || 3182)
 const token = process.env.HUB_TOKEN || randomBytes(12).toString('hex')
@@ -22,16 +23,18 @@ const hasPanel = existsSync(panelDist)
 registerAdapters(roles)
 
 const dshUrl = process.env.DSH_PANEL_URL
-// dsh 角色接入，二选一：
-//   headless（推荐，无 desktop）：DSH_HEADLESS_ROLES="name:中文名,…"（远程机器用 DSH_HEADLESS_CMD="ssh <host> dsh …"）
-//   desktop 插件：DSH_PANEL_URL（+ DSH_PANEL_TOKEN），启动拉插件 /meta 自动发现
-const headlessRoles = process.env.DSH_HEADLESS_ROLES
-if (headlessRoles) {
-  if (dshUrl) hubLog('INFO', 'DSH_HEADLESS_ROLES 与 DSH_PANEL_URL 同时配置：headless 优先生效，插件接入跳过')
-  const list = parseHeadlessRoles(headlessRoles)
-  registerHeadlessRoles(list)
-  hubLog('INFO', `dsh-headless 已接入：${HEADLESS_CMD}（角色 ${list.map((r) => r.name).join(' / ')}）`)
-} else if (dshUrl) {
+// dsh 接入模式优先级：面板切换持久化的配置（mode.ts 文件，重启仍生效）> DSH_HEADLESS_ROLES > DSH_PANEL_URL。
+// env 可同时配置 headless 与插件：headless 优先；持久化模式恢复失败时也回落到这段 env 逻辑。
+async function applyEnvMode(): Promise<void> {
+  const headlessRoles = process.env.DSH_HEADLESS_ROLES
+  if (headlessRoles) {
+    if (dshUrl) hubLog('INFO', 'DSH_HEADLESS_ROLES 与 DSH_PANEL_URL 同时配置：headless 优先生效，插件接入跳过')
+    const list = parseHeadlessRoles(headlessRoles)
+    registerHeadlessRoles(list)
+    hubLog('INFO', `dsh-headless 已接入：${HEADLESS_CMD}（角色 ${list.map((r) => r.name).join(' / ')}）`)
+    return
+  }
+  if (!dshUrl) return
   try {
     const res = await fetch(`${dshUrl}/meta`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -43,6 +46,18 @@ if (headlessRoles) {
   } catch (err) {
     hubLog('ERROR', `dsh 插件 /meta 拉取失败（${dshUrl}）：${String(err)}——只保留模拟角色`)
   }
+}
+
+const savedMode = loadMode()
+if (savedMode) {
+  try {
+    await applyMode(savedMode)
+  } catch (err) {
+    hubLog('ERROR', `恢复上次模式失败（${JSON.stringify(savedMode)}）：${String(err)}——改用环境变量`)
+    await applyEnvMode()
+  }
+} else {
+  await applyEnvMode()
 }
 
 startHttp(port, token, hasPanel ? panelDist : undefined)

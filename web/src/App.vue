@@ -7,10 +7,27 @@ import HistoryPanel from './components/HistoryPanel.vue'
 import LogPanel from './components/LogPanel.vue'
 import PresetEditor from './components/PresetEditor.vue'
 import { displayName, handleEvent, resetStore, store } from './store'
-import { apiBase, apiToken, BACKENDS, conn, saveConn } from './conn'
+import { api, apiBase, apiToken, BACKENDS, conn, saveConn } from './conn'
 
 let es: EventSource | undefined
 const showEditor = ref(false)
+// dsh 接入模式（hub /mode）：运行中切换会重注册角色，切换成功后整页重载。
+// headless 角色不在这里维护——与 desktop 插件一样从激活预设读取（预设编辑器是角色的唯一维护入口）。
+const mode = ref('mock')
+
+async function switchMode(value: string): Promise<void> {
+  const r = await api('/mode', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: value }),
+  })
+  if (!r.ok) {
+    store.status = `模式切换失败：${await r.text()}`
+    store.statusOk = false
+    return
+  }
+  location.reload()
+}
 
 // 后端模式切换：选择后保存并整页重载（SSE 随页面重建）
 function switchBackend(value: string): void {
@@ -42,6 +59,14 @@ onMounted(() => {
     .then((r) => (r.ok ? r.json() : null))
     .then((m) => {
       if (m) Object.assign(store.meta, m)
+    })
+    .catch(() => {})
+
+  // 当前 dsh 接入模式（失败不阻塞）
+  api('/mode')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (d) mode.value = d.mode
     })
     .catch(() => {})
 
@@ -80,6 +105,16 @@ onUnmounted(() => es?.close())
       <button class="ed-toggle" @click="showEditor = !showEditor">
         {{ showEditor ? '关闭预设编辑' : '预设编辑' }}
       </button>
+      <select
+        class="ed-toggle"
+        :value="mode"
+        title="dsh 接入模式：模拟角色 / dsh CLI（headless）/ desktop 插件；切换会重注册角色"
+        @change="switchMode(($event.target as HTMLSelectElement).value)"
+      >
+        <option value="mock">模拟角色（无 dsh）</option>
+        <option value="headless">dsh CLI（headless）</option>
+        <option value="plugin">desktop 插件</option>
+      </select>
       <select
         class="ed-toggle"
         :value="conn.base"

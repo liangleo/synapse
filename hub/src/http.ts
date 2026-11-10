@@ -5,9 +5,10 @@ import { join, resolve, sep } from 'node:path'
 import { backlogSince, subscribe, logTail, hubLog } from './bus.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { listJobs, getJob } from './jobs.js'
-import { steer, cancel, dispatch } from './orchestrate.js'
-import { headlessActive, roleSession, clearRoleSession } from './adapters/dsh-headless.js'
+import { steer, cancel, dispatch, applyMode, currentMode } from './orchestrate.js'
+import { roleSession, clearRoleSession } from './adapters/dsh-headless.js'
 import { dshSessionsDir, listDshSessions, readDshSession } from './dsh-logs.js'
+import { handlePresetsApi, activePipeline } from './presets.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -25,6 +26,15 @@ function isLocal(origin: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+function readBody(req: import('node:http').IncomingMessage): Promise<string> {
+  return new Promise((ok, fail) => {
+    let b = ''
+    req.on('data', (c) => (b += c))
+    req.on('end', () => ok(b))
+    req.on('error', fail)
+  })
 }
 
 // 会话管理/预设代理：历史对话、角色会话绑定、预设编辑转发给 dsh 插件（配置 DSH_PANEL_URL 时可用）
@@ -114,7 +124,7 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       // 角色会话绑定随派发动态变化，实时从 dsh 插件查询合并（插件不可达时不阻塞基础 meta）
       void (async () => {
         let roleSessions: Record<string, string> = {}
-        if (headlessActive()) {
+        if (currentMode() === 'headless') {
           // headless 模式：角色会话映射由 hub 自管
           for (const r of roles) {
             const sid = roleSession(r.name)
@@ -134,8 +144,8 @@ export function startHttp(port: number, token: string, panelDist?: string): void
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(
           JSON.stringify({
             preset: 'hub',
-            // 不声明 master：hub 模式下 master 是 LLM 编排者本身，不是可派发角色
-            pipeline: [],
+            // headless 模式展示激活预设的流水线（角色与预设同源）；其它模式不编排流水线
+            pipeline: currentMode() === 'headless' ? activePipeline() : [],
             roles: roles.map((r) => ({ name: r.name, label: r.label })),
             roleSessions,
           }),
@@ -158,8 +168,9 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       u.pathname.startsWith('/presets') ||
       u.pathname === '/preset/active'
     if (isPluginApi && authed) {
-      // headless 模式：历史与会话绑定由 hub 自己服务（无插件可代理；预设编辑随插件一起退役）
-      if (headlessActive()) {
+      void (async () => {
+      // headless 模式：历史/会话绑定/预设都由 hub 自服务（预设文件与 desktop 插件共用同一份）
+      if (currentMode() === 'headless') {
         if (req.method === 'GET' && u.pathname === '/history/sessions') {
           return res
             .writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
@@ -179,12 +190,43 @@ export function startHttp(port: number, token: string, panelDist?: string): void
           clearRoleSession(role)
           return res.writeHead(204).end()
         }
-        if (u.pathname.startsWith('/presets') || u.pathname === '/preset/active') {
-          return res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('headless 模式无预设编排（预设编辑随 desktop 插件提供）')
+        // 预设是角色的唯一维护入口：保存/切换预设会重注册 headless 角色，有活动作业时直接拒绝变更
+        const mutatesPreset = ['PUT', 'DELETE'].includes(req.method ?? '') || (req.method === 'POST' && u.pathname === '/preset/active')
+        if (mutatesPreset && listJobs().some((j) => j.state === 'running' || j.state === 'queued')) {
+          return res.writeHead(409, { 'content-type': 'text/plain; charset=utf-8' }).end('存在 running/queued 作业，等作业收尾后再改预设（改预设会重注册角色）')
+        }
+        if (await handlePresetsApi(req, res, u, readBody)) {
+          if (mutatesPreset) void applyMode({ mode: 'headless' }).catch((err) => hubLog('ERROR', `预设变更后重注册角色失败：${String(err)}`))
+          return
         }
       }
-      void proxyPlugin(req, res, `${u.pathname}${u.search}`)
+      await proxyPlugin(req, res, `${u.pathname}${u.search}`)
+      })()
       return
+    }
+
+    // dsh 接入模式：查询 / 运行中切换（mock / headless / plugin）；切换会重注册角色，有活动作业时拒绝
+    if (u.pathname === '/mode' && authed) {
+      if (req.method === 'GET') {
+        return res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(
+          JSON.stringify({
+            mode: currentMode(),
+            roles: roles.filter((r) => r.harness === 'dsh').map((r) => ({ name: r.name, label: r.label, level: r.level })),
+          }),
+        )
+      }
+      if (req.method === 'POST') {
+        void (async () => {
+          const body = await readBody(req)
+          try {
+            const out = await applyMode(JSON.parse(body) as { mode: 'mock' | 'headless' | 'plugin'; roles?: string[] })
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(out))
+          } catch (err) {
+            res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end(String(err instanceof Error ? err.message : err))
+          }
+        })()
+        return
+      }
     }
 
     if (u.pathname === '/command' && authed && req.method === 'POST') {

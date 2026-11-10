@@ -12,6 +12,13 @@ const stateDir = mkdtempSync(join(tmpdir(), 'hl-state-'))
 const sessDir = mkdtempSync(join(tmpdir(), 'hl-sess-'))
 const stub = new URL('./fixtures/headless-stub.mjs', import.meta.url).pathname
 
+// 预设文件（headless 角色的唯一维护入口，与 desktop 插件共用同一格式）
+const presets = {
+  active: 'p1',
+  presets: { p1: { roles: { 'dev-b': { label: '开发乙' } }, pipeline: ['dev-b'] } },
+}
+writeFileSync(join(stateDir, 'presets.json'), JSON.stringify(presets))
+
 // ---------- 假会话目录：一条纯 JSONL + 一条 zstd 多帧（模拟真实 dsh 的追加帧写法） ----------
 writeFileSync(
   join(sessDir, 'plain.jsonl'),
@@ -31,6 +38,8 @@ const proc = spawn('node', ['dist/index.js'], {
     DSH_HEADLESS_CMD: `node ${stub}`,
     DSH_SESSIONS_DIR: sessDir,
     HUB_HEADLESS_STATE: join(stateDir, 'sessions.json'),
+    HUB_MODE_STATE: join(stateDir, 'mode.json'),
+    HUB_PRESETS_FILE: join(stateDir, 'presets.json'),
     STUB_STATE: stateDir,
   },
 })
@@ -43,6 +52,12 @@ proc.stderr.on('data', (d) => {
 const pending = new Map()
 let buf = ''
 let nextId = 1
+// 崩溃时也杀掉 hub，避免孤儿进程占用端口污染下一次运行
+process.on('uncaughtException', (err) => {
+  proc.kill()
+  console.error(err)
+  process.exit(1)
+})
 proc.stdout.on('data', (d) => {
   buf += d.toString()
   let idx
@@ -82,7 +97,11 @@ async function callTool(name, args) {
   return res.result
 }
 async function api(path, init = {}) {
-  return fetch(`http://127.0.0.1:3194${path}`, { headers: { 'x-panel-token': hubToken }, ...init })
+  // headers 合并写法：init 在前，避免调用方带 content-type 时覆盖掉 token
+  return fetch(`http://127.0.0.1:3194${path}`, {
+    ...init,
+    headers: { 'x-panel-token': hubToken, ...(init.headers ?? {}) },
+  })
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -148,6 +167,45 @@ const h1 = await (await api('/history?session=plain')).json()
 check('纯 JSONL 解析', h1.items?.[0]?.text === '你好' && h1.items?.[1]?.text === '回答', JSON.stringify(h1.items))
 const h2 = await (await api('/history?session=comp')).json()
 check('zstd 多帧解析', h2.items?.[0]?.text === '第一帧' && h2.items?.[1]?.text === '第二帧', JSON.stringify(h2.items))
+
+// 8. 模式切换与预设：headless 角色从激活预设读取；预设 API 自服务；切换预设重注册；活动作业时拒绝
+const m0 = await (await api('/mode')).json()
+check('GET /mode 当前 headless（env 初始）', m0.mode === 'headless' && m0.roles?.some((r) => r.name === 'architect'), JSON.stringify(m0))
+const badPlugin = await api('/mode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'plugin' }) })
+check('切 plugin 无插件 → 400', badPlugin.status === 400, String(badPlugin.status))
+const sw = await api('/mode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'headless' }) })
+const swBody = await sw.json()
+check('headless 角色来自激活预设（dev-b）', sw.status === 200 && swBody.roles?.some((r) => r.name === 'dev-b' && r.label === '开发乙'), JSON.stringify(swBody))
+const team2 = await callTool('team_list', {})
+const t2 = team2.structuredContent?.team ?? []
+check('预设角色生效（dev-b → dsh L1）', t2.some((r) => r.role === 'dev-b' && r.harness === 'dsh' && r.level === 'L1'), JSON.stringify(t2.find((r) => r.role === 'dev-b')))
+check('不在预设的角色回退 mock（architect）', t2.some((r) => r.role === 'architect' && r.harness === 'mock-dsh'), JSON.stringify(t2.find((r) => r.role === 'architect')))
+const persisted = JSON.parse(readFileSync(join(stateDir, 'mode.json'), 'utf8'))
+check('模式选择已持久化', persisted.mode === 'headless' && persisted.roles === undefined, JSON.stringify(persisted))
+
+// 预设 API：GET 全量视图 → PUT 新预设 → 切激活 → 角色重注册
+const pv = await (await api('/presets')).json()
+check('GET /presets 视图', pv.active === 'p1' && pv.presets?.p1?.roles?.['dev-b'], JSON.stringify(pv))
+const put = await api('/presets/p2', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roles: { 'dev-c': { label: '开发丙' } }, pipeline: ['dev-c'] }) })
+check('PUT /presets/p2 204', put.status === 204, String(put.status))
+const act = await api('/preset/active', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'p2' }) })
+check('POST /preset/active 204', act.status === 204, String(act.status))
+await sleep(200)
+const team4 = await callTool('team_list', {})
+check('切换预设后角色重注册（dev-c）', (team4.structuredContent?.team ?? []).some((r) => r.role === 'dev-c' && r.harness === 'dsh'), JSON.stringify((team4.structuredContent?.team ?? []).find((r) => r.role === 'dev-c')))
+
+// 活动作业期间拒绝预设变更与模式切换：派发 sleep 作业 → PUT/切模式 409/400 → cancel 后可切
+const d5 = await callTool('task_dispatch', { role: 'dev-c', instruction: 'sleep 等切换' })
+await sleep(300)
+const blockedPreset = await api('/presets/p2', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roles: { 'dev-c': { label: '开发丙' } }, pipeline: [] }) })
+check('活动作业时改预设被拒（409）', blockedPreset.status === 409, String(blockedPreset.status))
+const blocked = await api('/mode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'mock' }) })
+check('活动作业时切换被拒（400）', blocked.status === 400 && (await blocked.text()).includes('running/queued'), String(blocked.status))
+await callTool('task_cancel', { jobId: d5.structuredContent?.jobId })
+const swMock = await api('/mode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'mock' }) })
+check('cancel 后可切 mock', swMock.status === 200, String(swMock.status))
+const team3 = await callTool('team_list', {})
+check('mock 模式下无 dsh 角色', !(team3.structuredContent?.team ?? []).some((r) => r.harness === 'dsh'), JSON.stringify(team3.structuredContent?.team))
 
 console.log(errors ? `\n${errors} 项失败` : '\ndsh-headless 适配器端到端全部通过')
 proc.kill()
