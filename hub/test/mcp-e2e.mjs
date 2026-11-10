@@ -1,8 +1,18 @@
 // MCP 端到端冒烟：以 stdio 子进程方式启动 hub，走完整 JSONRPC 流程验证工具。
 // 运行：node test/mcp-e2e.mjs（在 hub/ 目录下）
 import { spawn } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-const proc = spawn('node', ['dist/index.js'], { stdio: ['pipe', 'pipe', 'inherit'] })
+const proc = spawn('node', ['dist/index.js'], {
+  stdio: ['pipe', 'pipe', 'inherit'],
+  env: {
+    ...process.env,
+    // 隔离模式/预设状态文件：机器上有面板保存的 hub-mode.json 时不能让它污染断言
+    HUB_MODE_STATE: join(tmpdir(), 'mcp-e2e-mode.json'),
+    HUB_PRESETS_FILE: join(tmpdir(), 'mcp-e2e-presets.json'),
+  },
+})
 const pending = new Map()
 let buf = ''
 let nextId = 1

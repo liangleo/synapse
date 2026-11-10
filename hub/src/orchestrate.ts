@@ -129,6 +129,8 @@ export function dispatch(opts: {
   fromJobs?: string[]
   clientRequestId?: string
 }): { jobId: string; state: string } {
+  // 面板 /command 允许空文本进来，空任务对所有 harness 都是必败作业，入口直接拒绝
+  if (!opts.instruction.trim()) throw new Error('任务内容为空：派发需要 instruction（面板“任务内容”输入框）')
   const adapter = adapters.get(opts.role)
   if (!adapter) throw new Error(`未注册的角色：${opts.role}`)
 

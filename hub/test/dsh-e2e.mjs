@@ -2,6 +2,8 @@
 // hub 配置 DSH_PANEL_URL/DSH_PANEL_TOKEN 后经 MCP 全链路验证派发 → 事件映射 → 取回结果。
 // 运行：node test/dsh-e2e.mjs（在 hub/ 目录下，先 pnpm build）
 import { spawn } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createServer } from 'node:http'
 
 const BACKEND_PORT = 3187
@@ -84,6 +86,8 @@ const proc = spawn('node', ['dist/index.js'], {
   env: {
     ...process.env,
     HUB_PORT: '3192',
+    HUB_MODE_STATE: join(tmpdir(), 'dsh-e2e-mode.json'),
+    HUB_PRESETS_FILE: join(tmpdir(), 'dsh-e2e-presets.json'),
     DSH_PANEL_URL: `http://127.0.0.1:${BACKEND_PORT}`,
     DSH_PANEL_TOKEN: TOKEN,
   },
