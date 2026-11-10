@@ -1,0 +1,70 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { sendCommand } from '../conn'
+import { STATUS_LABEL, displayName, store, type AgentView } from '../store'
+import { col, nm } from '../util'
+
+const props = defineProps<{ agent: AgentView }>()
+
+const cls = computed(() => [
+  'card',
+  `s-${props.agent.s}`,
+  {
+    m: !props.agent.parent,
+    sel: store.sel === props.agent.id,
+    end: props.agent.ended,
+  },
+])
+const pct = computed(() =>
+  props.agent.steps < 0 ? 100 : Math.round(100 * (1 - 1 / (1 + props.agent.steps * 0.5))),
+)
+const recentLog = computed(() => props.agent.log.slice(-4))
+// master 卡不显示操作按钮（编排中止通过卡住的那一步操作）
+const actionable = computed(() => Boolean(props.agent.role) && props.agent.role !== store.meta.master)
+
+function act(type: string): void {
+  void sendCommand(type, props.agent.role!)
+}
+
+function toggleSel(): void {
+  store.sel = store.sel === props.agent.id ? null : props.agent.id
+  if (props.agent.role) store.cmd.to = props.agent.role
+}
+</script>
+
+<template>
+  <div
+    :class="cls"
+    :style="{ '--c': col(agent.id) }"
+    role="button"
+    tabindex="0"
+    @click="toggleSel"
+    @keydown.enter.prevent="toggleSel"
+    @keydown.space.prevent="toggleSel"
+  >
+    <div class="top">
+      <span class="bot">
+        <svg viewBox="0 0 28 28" width="30" height="30" aria-hidden="true">
+          <line x1="14" y1="3" x2="14" y2="7" stroke="currentColor" stroke-width="2" />
+          <circle cx="14" cy="3" r="2" fill="currentColor" />
+          <rect x="3" y="7" width="22" height="17" rx="5" fill="currentColor" />
+          <circle cx="10" cy="15" r="2.6" fill="#fff" />
+          <circle cx="18" cy="15" r="2.6" fill="#fff" />
+        </svg>
+      </span>
+      <b :title="agent.role">{{ displayName(agent.role) || nm(agent) }}</b>
+      <span class="hb">{{ agent.h ?? '' }}</span>
+      <span class="pill" :data-s="agent.s">{{ STATUS_LABEL[agent.s] }}</span>
+    </div>
+    <div class="job">{{ agent.job }}</div>
+    <div class="bar"><i :style="{ width: pct + '%' }" /></div>
+    <div class="out" :hidden="!agent.out">{{ agent.out }}</div>
+    <div class="lg">
+      <div v-for="(l, i) in recentLog" :key="i">{{ l }}</div>
+    </div>
+    <div v-if="actionable" class="card-actions" @click.stop>
+      <button class="mini" @click="act('task.rejected')">打回</button>
+      <button class="mini" @click="act('task.cancel')">中断</button>
+    </div>
+  </div>
+</template>

@@ -1,0 +1,4 @@
+dist/
+node_modules/
+synapse-agent-panel.zip
+pnpm-lock.yaml

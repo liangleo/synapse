@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "typecheck",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["typecheck"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["build"],
+      "problemMatcher": []
+    },
+    {
+      "label": "mock server",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["mock"],
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

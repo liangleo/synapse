@@ -1,0 +1,48 @@
+{
+  "name": "synapse-agent-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "多 agent 协作可视化面板：本地 Web 面板 + dsh 事件桥接插件（含 mock server 可独立演示）",
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "typecheck": "tsc --noEmit && vue-tsc -p web --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "clean": "node scripts/clean.mjs",
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.build.json && vite build --config web/vite.config.ts && node scripts/after-build.mjs",
+    "dev": "vite dev --config web/vite.config.ts",
+    "mock": "pnpm -s build && node --watch src/mock-server.mjs",
+    "host": "pnpm -s build && node --watch scripts/mock-host.mjs",
+    "smoke": "pnpm -s build && node scripts/smoke.mjs",
+    "watch:node": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "pack:plugin": "cd dist && npm pack",
+    "dsh:add": "node scripts/dsh-add.mjs",
+    "dsh:add:link": "DSH_ADD=link node scripts/dsh-add.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/schemastery": "~3.19.0",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.1",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "@types/node": "^22.10.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "eslint": "^9",
+    "eslint-config-prettier": "^10",
+    "eslint-plugin-vue": "^10",
+    "globals": "^16",
+    "prettier": "^3",
+    "sass": "^1.80.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8",
+    "vite": "^7.0.0",
+    "vue-tsc": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Synapse Agent Panel",
+    "description": "Visual multi-agent collaboration panel: bridges dsh agent events to a local web panel and dispatches panel commands back to the Agent API."
+  }
+}

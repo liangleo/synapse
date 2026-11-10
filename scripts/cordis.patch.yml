@@ -1,0 +1,12 @@
+# dsh-panel-bridge 的 profile 层声明（dsh.bundle patch）。
+# 注意：patch 按 id 整行替换、不做深合并——要改配置请在 profile 的 cordis.patch.yml 里
+# 重述本行全部键（id/name/config）。panelHtml 缺省用插件同目录的 static/index.html。
+- insert:
+    - id: panel-bridge
+      name: 'dsh-panel-bridge'
+      config:
+        port: 3180
+        preset: client # 或 server / 本地自定义预设名
+        orchestrator:
+          master: master
+        # 绑定已有 dsh 会话：编辑 ~/.synapse-agent-panel/panel-state.json 的 sessions 映射指向该 session id

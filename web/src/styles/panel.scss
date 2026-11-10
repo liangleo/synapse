@@ -1,0 +1,734 @@
+// 面板全局样式 —— 参考稿风格：干净双色（浅色优先）、系统字体、紫色主操作、柔和徽章。
+// 亮/暗跟随系统，可被 <html data-theme> 覆盖；每张卡片运行时的 --c 由组件内联注入。
+// 注意：CSS 自定义属性的值不会被 Sass 求值，必须 #{} 插值。
+@use 'sass:map';
+@use 'sass:list';
+
+// ---------- 调色板 ----------
+$radius: 10px;
+$radius-sm: 7px;
+$pri: #4a3fc4;
+$focus: #6c5ce7;
+
+$light: (
+  bg: #f2f4f8,
+  card: #fff,
+  tx: #1b2330,
+  mut: #687386,
+  bd: #d9dee8,
+  in: #eef1f6,
+  scheme: light,
+);
+$dark: (
+  bg: #10131a,
+  card: #1a1e29,
+  tx: #e6e9f1,
+  mut: #98a1b5,
+  bd: #2b3142,
+  in: #232837,
+  scheme: dark,
+);
+
+// 状态徽章配色：key 与 data-s 属性对应（参考稿同款柔和色）
+$pill: (
+  thinking: (
+    #6c5ce72e,
+    #8a7cf0,
+  ),
+  working: (
+    #00b8942e,
+    #1aa882,
+  ),
+  done: (
+    #0984e32e,
+    #3a93e0,
+  ),
+  failed: (
+    #e170552e,
+    #e5694a,
+  ),
+);
+
+@mixin theme($t) {
+  --bg: #{map.get($t, bg)};
+  --card: #{map.get($t, card)};
+  --tx: #{map.get($t, tx)};
+  --mut: #{map.get($t, mut)};
+  --bd: #{map.get($t, bd)};
+  --in: #{map.get($t, in)};
+  color-scheme: map.get($t, scheme);
+}
+
+:root {
+  box-sizing: border-box;
+  @include theme($light);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    @include theme($dark);
+  }
+}
+:root[data-theme='dark'] {
+  @include theme($dark);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--tx);
+  font:
+    13px/1.5 -apple-system,
+    'PingFang SC',
+    'Microsoft YaHei',
+    'Noto Sans CJK SC',
+    sans-serif;
+}
+
+// ---------- 顶栏 ----------
+header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--bd);
+
+  h1 {
+    font-size: 17px;
+    margin: 0 0 8px;
+    display: flex;
+    gap: 10px;
+    align-items: center; // 顶栏右侧控件比文字高，用垂直居中避免溢出/重叠
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+}
+
+#st {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--mut);
+
+  &.ok {
+    color: #1aa882;
+  }
+}
+
+.pipeline {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--mut);
+
+  b {
+    color: var(--tx);
+  }
+
+  .sess {
+    margin-right: 10px;
+  }
+}
+.pipeline:last-child {
+  margin-bottom: 8px;
+}
+
+.ctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+input,
+button,
+select,
+textarea {
+  font: inherit;
+  color: var(--tx);
+  background: var(--in);
+  border: 1px solid var(--bd);
+  border-radius: $radius-sm;
+  padding: 6px 10px;
+  min-width: 0;
+}
+
+#role {
+  width: 130px;
+}
+#tid {
+  width: 210px;
+}
+#txt {
+  flex: 1 1 240px;
+}
+
+button {
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--mut);
+  }
+  &.pri {
+    background: $pri;
+    border-color: $pri;
+    color: #fff;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid $focus;
+  outline-offset: 2px;
+}
+
+// 角色输入框的自定义下拉
+.role-wrap {
+  position: relative;
+}
+
+.suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: $radius-sm;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  max-height: 200px;
+  overflow: auto;
+  min-width: 160px;
+
+  button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    padding: 4px 8px;
+    border-radius: 4px;
+
+    &:hover {
+      background: var(--in);
+    }
+  }
+}
+
+// ---------- 主区 ----------
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 12px;
+  padding: 12px 16px;
+}
+@media (max-width: 860px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 12px;
+}
+
+// ---------- agent 卡片 ----------
+.card {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-top: 3px solid var(--c);
+  border-radius: $radius;
+  padding: 10px;
+  cursor: pointer;
+  min-width: 0;
+
+  &:hover {
+    border-color: var(--mut);
+  }
+
+  &.m {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+  &.sel {
+    outline: 2px solid var(--c);
+  }
+  &.end {
+    opacity: 0.55;
+  }
+
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    b {
+      flex: 1;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .bot {
+    color: var(--c);
+    display: inline-flex;
+  }
+
+  .hb {
+    font-size: 11px;
+    color: var(--mut);
+    border: 1px solid var(--bd);
+    border-radius: 5px;
+    padding: 0 6px;
+  }
+
+  .pill {
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 99px;
+    background: var(--in);
+    color: var(--mut);
+
+    @each $name, $pair in $pill {
+      &[data-s='#{$name}'] {
+        background: list.nth($pair, 1);
+        color: list.nth($pair, 2);
+      }
+    }
+  }
+
+  .job {
+    margin: 8px 0 6px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .bar {
+    height: 4px;
+    background: var(--in);
+    border-radius: 4px;
+    overflow: hidden;
+
+    i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--c);
+      transition: width 0.3s;
+    }
+  }
+
+  .lg {
+    margin-top: 8px;
+    color: var(--mut);
+    min-height: 4.5em;
+    font-size: 12px;
+
+    div {
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .out {
+    margin-top: 6px;
+    font-size: 12px;
+    border-left: 2px solid var(--c);
+    padding-left: 8px;
+    color: var(--tx);
+    max-height: 4.5em;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  // 状态动画
+  &.s-idle .bot {
+    animation: br 2.6s ease-in-out infinite;
+  }
+  &.s-thinking .bot {
+    animation: br 1s ease-in-out infinite;
+  }
+  &.s-working .bot {
+    animation: bn 0.45s ease-in-out infinite alternate;
+  }
+  &.s-failed .bot {
+    animation: sh 0.3s 3;
+  }
+}
+
+@keyframes br {
+  50% {
+    transform: scale(1.08);
+  }
+}
+@keyframes bn {
+  to {
+    transform: translateY(-3px);
+  }
+}
+@keyframes sh {
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+// ---------- 底部面板行：日志 + 历史对话 ----------
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0 16px 12px;
+}
+@media (max-width: 860px) {
+  .panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel-box {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: $radius;
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+  max-height: 300px;
+
+  h2 {
+    font-size: 13px;
+    margin: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--bd);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+
+    button {
+      padding: 0 8px;
+      font-size: 12px;
+    }
+  }
+}
+
+// ---------- 事件流侧栏 ----------
+// ---------- 事件流侧栏 ----------
+aside {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: $radius;
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  max-height: calc(100vh - 150px);
+
+  h2 {
+    font-size: 13px;
+    margin: 0;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--bd);
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+
+    button {
+      padding: 0 8px;
+      font-size: 12px;
+    }
+  }
+}
+@media (max-width: 860px) {
+  aside {
+    max-height: 420px;
+  }
+}
+
+.ev-switch {
+  display: flex;
+  gap: 6px;
+
+  button.on {
+    background: var(--card);
+    color: var(--tx);
+    border-color: $focus;
+  }
+}
+
+#ev {
+  overflow: auto;
+  flex: 1;
+  padding: 6px 12px;
+}
+
+.ev {
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--bd);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+
+  .tm {
+    color: var(--mut);
+    margin-right: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tt {
+    font-weight: 700;
+  }
+  .pl {
+    display: block;
+    color: var(--mut);
+  }
+}
+
+// 历史对话视图
+.hist {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.hist-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--bd);
+
+  select {
+    flex: 1;
+  }
+}
+
+.hist-body {
+  overflow: auto;
+  flex: 1;
+  padding: 6px 12px;
+}
+
+.hist-item {
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--bd);
+  font-size: 12px;
+
+  &.hist-user .hist-text {
+    color: var(--tx);
+    font-weight: 600;
+  }
+  &.hist-assistant .hist-text {
+    color: var(--tx);
+  }
+  &.hist-turn {
+    color: var(--mut);
+    text-align: center;
+    border-bottom: 0;
+  }
+  &.hist-error .hist-text {
+    color: #e5694a;
+  }
+}
+
+.hist-kind {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--mut);
+}
+
+.hist-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+#logview {
+  overflow: auto;
+  flex: 1;
+  min-width: 0; // flex 子元素默认不收缩，长日志会把内容撑出面板框
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 6px 12px;
+  font:
+    12px/1.6 ui-monospace,
+    'SF Mono',
+    Menlo,
+    Consolas,
+    monospace;
+  color: var(--mut);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  color: var(--mut);
+  padding: 12px 0;
+}
+
+// ---------- 预设编辑器 ----------
+.ed-toggle {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+h1 .ed-toggle {
+  margin-left: auto; // 只有第一个控件推开到右侧
+}
+
+.editor {
+  margin: 0 16px 12px;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: $radius;
+  padding: 12px;
+}
+
+.ed-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.ed-name {
+  width: 140px;
+}
+.ed-msg {
+  color: var(--mut);
+  font-size: 12px;
+
+  &.ok {
+    color: #1aa882;
+  }
+}
+.ed-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+@media (max-width: 860px) {
+  .ed-body {
+    grid-template-columns: 1fr;
+  }
+}
+.ed-roles,
+.ed-pipeline {
+  h3 {
+    font-size: 13px;
+    margin: 0 0 8px;
+  }
+}
+
+.role-chip {
+  background: var(--in);
+  border: 1px solid var(--bd);
+  border-radius: $radius-sm;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  .role-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap; // 窄容器时输入框换行，不挤压角色名
+
+    b {
+      flex: 1;
+      min-width: 96px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis; // 名字过长时截断，避免一字一行
+    }
+  }
+
+  textarea {
+    width: 100%;
+    margin-top: 6px;
+    resize: vertical;
+  }
+}
+
+.ed-model {
+  width: 150px;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.ed-label {
+  width: 84px;
+}
+
+.mini {
+  padding: 1px 7px;
+  font-size: 12px;
+
+  &.danger:hover {
+    border-color: #e5694a;
+    color: #e5694a;
+  }
+}
+
+.add-role {
+  display: flex;
+  gap: 6px;
+
+  input {
+    flex: 1;
+  }
+}
+
+.ed-pipeline ol {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  min-height: 60px;
+  border: 1px dashed var(--bd);
+  border-radius: $radius-sm;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    margin-bottom: 4px;
+    background: var(--in);
+    border-radius: 5px;
+    cursor: grab;
+
+    .mini {
+      margin-left: auto;
+    }
+  }
+
+  .step-no {
+    color: var(--mut);
+    font-size: 11px;
+    min-width: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .drop-tail {
+    justify-content: center;
+    color: var(--mut);
+    background: transparent;
+    border: 1px dashed var(--bd);
+    cursor: default;
+  }
+}
