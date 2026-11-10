@@ -1,6 +1,6 @@
 // hub 的面板 HTTP：SSE 事件流 / meta / logs / command / 静态面板，全部只监听 127.0.0.1。
-import { createServer, type IncomingMessage } from 'node:http'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { backlogSince, subscribe, logTail } from './bus.js'
 import { DEFAULT_ROLES as roles } from './registry.js'

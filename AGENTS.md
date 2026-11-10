@@ -48,6 +48,11 @@ dist/          编译产物（gitignore，pnpm build 生成）
 
 - `presets.json` 预设与激活状态 · `panel-state.json` role→session 映射 · `panel.log` 插件日志 · `mock-registry.json` mock 注册表
 
+## 注释与文档引用规范
+
+- 代码注释必须自含具体内容：禁止出现「见设计文档 §2」「详见 xxx.md §3-4」这类编号式引用——把被引用的语义直接写进注释（例如「fromJobs 自动把上游产出注入 instruction」「patch 按 id 整行替换不做深合并」）。
+- 指向设计/方案文档的链接只允许出现在文件头部的说明注释和 README/AGENTS 里，且必须写全文件路径。
+
 ## 踩坑史（改代码前先读）
 
 - mock/模拟器的事件形状与真实宿主不一致会掩盖插件 bug——改形状前对照真机核对结论（见 `docs/` 与 git 历史）。

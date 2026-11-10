@@ -1,10 +1,7 @@
 // 编排服务：把 MCP 工具调用接到作业状态机 + 适配器。
-// 关键语义（docs/MCP 控制面 hub 设计方案.md §3）：
-// - fromJobs：自动把上游结果注入 instruction，LLM 不搬运大段文本
-// - clientRequestId 去重，防 LLM 重试重复派发
-// - 每角色默认并发 1：多余作业排队，前序结束后自动启动
-// - L1 角色 steer 返回 UNSUPPORTED
-import { createJob, getJob, listJobs, findByClientRequestId, setJobState, addJobLog, addJobAction, onJobStateChange } from './jobs.js'
+// 关键语义：fromJobs 自动把上游作业产出注入 instruction；clientRequestId 去重防 LLM 重试重复派发；
+// 每角色默认并发 1，多余作业排队、前序结束自动启动；L1 角色 steer 返回 UNSUPPORTED 而非静默失败。
+import { createJob, getJob, listJobs, findByClientRequestId, setJobState, addJobLog, onJobStateChange } from './jobs.js'
 import { createMockAdapter, type Adapter } from './adapters/mock.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'

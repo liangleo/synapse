@@ -1,6 +1,6 @@
 # AGENTS.md — hub 子工程（MCP 控制面）
 
-LLM master 经 MCP 工具编排多 harness 子 agent；面板作为观测面。设计文档：`../docs/MCP 控制面 hub 设计方案.md`（本文为其 §9 代码结构的实现说明）。
+LLM master 经 MCP 工具编排多 harness 子 agent；面板作为观测面。完整设计见 `../docs/MCP 控制面 hub 设计方案.md`（本文描述其代码结构：MCP 服务/作业状态机/角色注册表/适配器/面板 HTTP）。
 
 ## 结构
 
@@ -40,4 +40,4 @@ node test/mcp-e2e.mjs    # 端到端 16 项断言（stdio JSONRPC 全链路）
 
 ## 下一步（M2-M5）
 
-dsh 适配器（转发现有插件 HTTP）→ Codex（app-server）→ Claude Code（无头会话）→ worktree 隔离 / SQLite / 审批。见 `../plan.md`。
+dsh 适配器（转发现有插件 HTTP）→ Codex（app-server）→ Claude Code（无头会话）→ worktree 隔离 / SQLite / 审批。见 `../docs/plan.md`。

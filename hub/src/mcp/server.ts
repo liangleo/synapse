@@ -1,12 +1,13 @@
 // MCP 控制面（stdio）：给 LLM master 的编排工具。
-// 工具数量少、粒度粗、异步作业模式；详见 docs/MCP 控制面 hub 设计方案.md §3-4。
+// 关键语义：fromJobs 自动把上游产出注入 instruction（LLM 不搬运大段文本）；
+// clientRequestId 去重防重复派发；task_wait 上限 120 秒；大输出只放资源（上下文卫生）；
+// L1 角色的 steer 返回 UNSUPPORTED 而非静默失败。
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { DEFAULT_ROLES as roles } from '../registry.js'
 import { dispatch, steer, cancel, summaryOf } from '../orchestrate.js'
 import { getJob, listJobs, waitFor } from '../jobs.js'
-import { logTail } from '../bus.js'
 import type { Job } from '../types.js'
 
 const INSTRUCTIONS = `你是多 agent 编排 master。规程：

@@ -101,8 +101,6 @@ const rJobId = review.structuredContent?.jobId
 await callTool('task_wait', { jobIds: [rJobId], until: 'all', timeoutSec: 30 })
 const result = await callTool('task_result', { jobId: rJobId, detail: 'summary' })
 check('task_result 返回产出', result.content?.[0]?.text?.includes('【评审 · mock-claude】') === true)
-const injected = getLogViaResource ? null : null
-
 // 8. task_steer 对 L1 → UNSUPPORTED
 const steerJob = await callTool('task_dispatch', { role: 'reviewer', instruction: '另一个评审' })
 await callTool('task_wait', { jobIds: [steerJob.structuredContent.jobId], until: 'any', timeoutSec: 10 })
@@ -122,4 +120,3 @@ console.log(errors ? `\n${errors} 项失败` : '\nMCP 端到端全部通过')
 proc.kill()
 process.exit(errors ? 1 : 0)
 
-function getLogViaResource() {}
