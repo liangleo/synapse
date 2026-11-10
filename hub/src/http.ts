@@ -6,6 +6,8 @@ import { backlogSince, subscribe, logTail, hubLog } from './bus.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { listJobs, getJob } from './jobs.js'
 import { steer, cancel, dispatch } from './orchestrate.js'
+import { headlessActive, roleSession, clearRoleSession } from './adapters/dsh-headless.js'
+import { dshSessionsDir, listDshSessions, readDshSession } from './dsh-logs.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -112,13 +114,21 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       // 角色会话绑定随派发动态变化，实时从 dsh 插件查询合并（插件不可达时不阻塞基础 meta）
       void (async () => {
         let roleSessions: Record<string, string> = {}
-        const base = process.env.DSH_PANEL_URL
-        if (base) {
-          try {
-            const r = await fetch(`${base}/meta`, { headers: { 'x-panel-token': process.env.DSH_PANEL_TOKEN ?? '' } })
-            if (r.ok) roleSessions = ((await r.json()) as { roleSessions?: Record<string, string> }).roleSessions ?? {}
-          } catch {
-            /* 插件不可达，绑定为空 */
+        if (headlessActive()) {
+          // headless 模式：角色会话映射由 hub 自管
+          for (const r of roles) {
+            const sid = roleSession(r.name)
+            if (sid) roleSessions[r.name] = sid
+          }
+        } else {
+          const base = process.env.DSH_PANEL_URL
+          if (base) {
+            try {
+              const r = await fetch(`${base}/meta`, { headers: { 'x-panel-token': process.env.DSH_PANEL_TOKEN ?? '' } })
+              if (r.ok) roleSessions = ((await r.json()) as { roleSessions?: Record<string, string> }).roleSessions ?? {}
+            } catch {
+              /* 插件不可达，绑定为空 */
+            }
           }
         }
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(
@@ -148,6 +158,31 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       u.pathname.startsWith('/presets') ||
       u.pathname === '/preset/active'
     if (isPluginApi && authed) {
+      // headless 模式：历史与会话绑定由 hub 自己服务（无插件可代理；预设编辑随插件一起退役）
+      if (headlessActive()) {
+        if (req.method === 'GET' && u.pathname === '/history/sessions') {
+          return res
+            .writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ dir: dshSessionsDir(), sessions: listDshSessions() }))
+        }
+        if (req.method === 'GET' && u.pathname === '/history') {
+          try {
+            return res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(
+              JSON.stringify({ session: u.searchParams.get('session') ?? '', items: readDshSession(u.searchParams.get('session') ?? '') }),
+            )
+          } catch (err) {
+            return res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end(`会话日志不可读：${String(err)}`)
+          }
+        }
+        const role = u.pathname.startsWith('/role-session/') ? decodeURIComponent(u.pathname.slice('/role-session/'.length)) : ''
+        if (req.method === 'DELETE' && role) {
+          clearRoleSession(role)
+          return res.writeHead(204).end()
+        }
+        if (u.pathname.startsWith('/presets') || u.pathname === '/preset/active') {
+          return res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('headless 模式无预设编排（预设编辑随 desktop 插件提供）')
+        }
+      }
       void proxyPlugin(req, res, `${u.pathname}${u.search}`)
       return
     }

@@ -6,8 +6,9 @@ import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { startHttp } from './http.js'
 import { startMcp } from './mcp/server.js'
-import { registerAdapters, registerDshRoles } from './orchestrate.js'
+import { registerAdapters, registerDshRoles, registerHeadlessRoles } from './orchestrate.js'
 import { startDshEvents } from './adapters/dsh.js'
+import { parseHeadlessRoles, CMD as HEADLESS_CMD } from './adapters/dsh-headless.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'
 
@@ -20,9 +21,17 @@ const hasPanel = existsSync(panelDist)
 
 registerAdapters(roles)
 
-// dsh 真实角色：配置 DSH_PANEL_URL（+ DSH_PANEL_TOKEN）时从插件 /meta 自动发现并注册
 const dshUrl = process.env.DSH_PANEL_URL
-if (dshUrl) {
+// dsh 角色接入，二选一：
+//   headless（推荐，无 desktop）：DSH_HEADLESS_ROLES="name:中文名,…"（远程机器用 DSH_HEADLESS_CMD="ssh <host> dsh …"）
+//   desktop 插件：DSH_PANEL_URL（+ DSH_PANEL_TOKEN），启动拉插件 /meta 自动发现
+const headlessRoles = process.env.DSH_HEADLESS_ROLES
+if (headlessRoles) {
+  if (dshUrl) hubLog('INFO', 'DSH_HEADLESS_ROLES 与 DSH_PANEL_URL 同时配置：headless 优先生效，插件接入跳过')
+  const list = parseHeadlessRoles(headlessRoles)
+  registerHeadlessRoles(list)
+  hubLog('INFO', `dsh-headless 已接入：${HEADLESS_CMD}（角色 ${list.map((r) => r.name).join(' / ')}）`)
+} else if (dshUrl) {
   try {
     const res = await fetch(`${dshUrl}/meta`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)

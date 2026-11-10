@@ -4,6 +4,7 @@
 import { createJob, getJob, listJobs, findByClientRequestId, setJobState, addJobLog, onJobStateChange } from './jobs.js'
 import { createMockAdapter, type Adapter } from './adapters/mock.js'
 import { createDshAdapter } from './adapters/dsh.js'
+import { createDshHeadlessAdapter } from './adapters/dsh-headless.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'
 import type { Job, RoleDef } from './types.js'
@@ -15,14 +16,23 @@ export function registerAdapters(roleList: RoleDef[]): void {
   for (const role of roleList) adapters.set(role.name, createMockAdapter(role))
 }
 
-// dsh 真实角色：来自插件 /meta 的角色列表，追加进注册表（mcp/server 持有同一数组引用）并建适配器
+// 真实角色注册：同名默认 mock 角色就地升级为真实 harness（mcp/server 持有同一数组引用），适配器覆盖
+function upsertRole(role: RoleDef, adapter: Adapter): void {
+  const i = roles.findIndex((r) => r.name === role.name)
+  if (i >= 0) roles[i] = role
+  else roles.push(role)
+  adapters.set(role.name, adapter)
+  hubLog('INFO', `注册 ${role.harness} 角色：${role.name}（${role.label}，${role.level}）`)
+}
+
+// dsh 真实角色：来自插件 /meta 的角色列表
 export function registerDshRoles(list: { name: string; label?: string }[]): void {
-  for (const r of list) {
-    const role: RoleDef = { name: r.name, harness: 'dsh', level: 'L2', label: r.label ?? r.name }
-    roles.push(role)
-    adapters.set(role.name, createDshAdapter())
-    hubLog('INFO', `注册 dsh 角色：${role.name}（${role.label}）`)
-  }
+  for (const r of list) upsertRole({ name: r.name, harness: 'dsh', level: 'L2', label: r.label ?? r.name }, createDshAdapter())
+}
+
+// dsh-headless 角色：无 desktop，spawn `dsh --profile headless --json` 跑一次性任务（L1，无运行中 steer）
+export function registerHeadlessRoles(list: { name: string; label?: string }[]): void {
+  for (const r of list) upsertRole({ name: r.name, harness: 'dsh', level: 'L1', label: r.label ?? r.name }, createDshHeadlessAdapter())
 }
 
 // 作业结束（终态）后启动该角色队列中的下一个排队作业

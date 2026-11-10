@@ -14,8 +14,10 @@ src/
   orchestrate.ts      dispatch（去重/fromJobs 注入/排队调度）、steer、cancel；registerDshRoles（插件 /meta 角色发现）
   adapters/mock.ts    模拟适配器（L2 mock-dsh/mock-codex：可流式可 steer；L1 mock-claude：结束才出结果）
   adapters/dsh.ts     dsh 真实适配器：转插件 HTTP（POST /command、SSE /events、2s 重连）；turn.ended → 作业状态机；DSH_PANEL_URL/DSH_PANEL_TOKEN 接入
+  adapters/dsh-headless.ts  dsh-headless 适配器：spawn `dsh --profile headless --json`（无 desktop，L1）；NDJSON 事件流 → PanelEvent；role→sessionId 映射自管（HUB_HEADLESS_STATE）
+  dsh-logs.ts         headless 模式下 hub 自服务历史会话：扫描/解析 ~/.dsh/sessions 的 zstd 多帧 session.v4.jsonl.zstd
   mcp/server.ts       7 个工具 + panel://jobs/{id}/log 资源模板 + instructions
-  http.ts             面板 HTTP：SSE /events、/meta、/logs、/command（人工操作）、静态面板
+  http.ts             面板 HTTP：SSE /events、/meta、/logs、/command（人工操作）、静态面板；headless 时 /history、/role-session 本地服务
 ```
 
 ## 命令
@@ -25,14 +27,23 @@ pnpm install && pnpm build
 pnpm start               # 面板 :3182 + MCP stdio；日志走 stderr
 node test/mcp-e2e.mjs    # 端到端 16 项断言（stdio JSONRPC 全链路，模拟适配器）
 node test/dsh-e2e.mjs    # dsh 适配器 12 项断言（内置假 dsh 后端，同插件 HTTP 契约）
+node test/headless-e2e.mjs # dsh-headless 适配器 16 项断言（stub 模拟 NDJSON 事件流 + 假会话目录）
+node test/headless-real.mjs # headless 真机验收：真 dsh CLI 跑一单真实作业（需 headless 凭据）
 node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOKEN 指向真实插件后跑派发全链路
 ```
 
 ## 环境变量
 
 - `HUB_PORT`（默认 3182）、`HUB_TOKEN`（默认随机生成，见启动 stderr）
-- `DSH_PANEL_URL`（配置后接入 dsh 插件并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
+- `DSH_HEADLESS_ROLES`（headless 接入，设置即启用：`"architect:架构师,dev-a"`，同名 mock 角色就地升级；优先级高于 DSH_PANEL_URL）、`DSH_HEADLESS_CMD`（默认 `dsh --profile headless --json`，远程机器写 `ssh <host> dsh …`）、`HUB_HEADLESS_STATE`（role→sessionId 映射文件）
+- `DSH_PANEL_URL`（desktop 插件接入并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
+- `DSH_SESSIONS_DIR`（默认 ~/.dsh/sessions，headless 历史 API 读取，测试可覆盖）
 - `PANEL_DIST` 默认 `../../dist/static`（仓库根 pnpm build 的产物）
+
+## dsh-headless 凭据（部署新机器时）
+
+1. `npm i -g @deepseek-ai/dsh`，跑一次 `dsh --profile headless --help` 生成 profile
+2. headless 出厂默认禁用凭据存储且模型路由为 deepseek-official（要 API key）；要复用 GUI 登录，在 `~/.dsh/profiles/headless/cordis.patch.yml` 追加：恢复 `credentials/authorization/deepseek-account` 三行（`disabled: false`）+ `agent-default-model` 改 `provider: deepseek-account`（本机已配好，见该文件）
 
 ## 工具语义（master 必读，见 INSTRUCTIONS）
 

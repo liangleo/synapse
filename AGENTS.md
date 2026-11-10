@@ -39,7 +39,7 @@ pnpm -C hub build && pnpm -C hub start   # 启动 hub（面板 :3182 + MCP stdio
 ```
 src/           插件源码（dsh-panel-bridge.ts / game-presets.ts / panel-event.ts / mock-server.mjs）
 web/src/       面板源码（App.vue + components/ + store.ts + conn.ts + styles/panel.scss）
-hub/src/       hub（mcp/server.ts / orchestrate.ts / jobs.ts / registry.ts / adapters/mock.ts / http.ts / bus.ts）
+hub/src/       hub（mcp/server.ts / orchestrate.ts / jobs.ts / registry.ts / adapters/mock.ts / adapters/dsh.ts / adapters/dsh-headless.ts / http.ts / bus.ts）
 scripts/       构建与部署辅助（clean / after-build / dsh-add / mock-host / smoke / dist-package / cordis.patch / locale / icon）
 docs/          设计文档（MCP 控制面 hub 设计方案.md）
 dist/          编译产物（gitignore，pnpm build 生成）
