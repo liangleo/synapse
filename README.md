@@ -24,7 +24,7 @@ pnpm build      # node 侧 tsc → dist/*.js；Vite → dist/static/
 | --------- | ------------------------------- | ------------------------------------------- | ---- | ------------------- |
 | mock      | `pnpm mock`                     | 只测界面：假事件回放，**不经过插件**        | 3180 | `dist/static/`      |
 | mock host | `pnpm host`                     | 测插件本体：真 cordis 宿主 + 假 agents 服务 | 3181 | 整个 `dist/`        |
-| 真实 dsh  | `pnpm dsh:add` / 桌面版 Plugins | 完整链路（真实 agent、真实模型）            | 3180 | `dist/` 作为 bundle |
+| 真实 dsh  | `pnpm dsh:push`（开发）/ `pnpm dsh:add`（装快照） | 完整链路（真实 agent、真实模型）；`dsh:push` = build 后 desktop HMR 自动重载实时链接的 dist | 3180 | `dist/` 作为 bundle |
 
 `pnpm dev` 是前端热更新服（Vite，5173），只在你改界面时用，默认把接口代理到 `pnpm mock`。
 

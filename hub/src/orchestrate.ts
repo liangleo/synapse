@@ -3,6 +3,7 @@
 // 每角色默认并发 1，多余作业排队、前序结束自动启动；L1 角色 steer 返回 UNSUPPORTED 而非静默失败。
 import { createJob, getJob, listJobs, findByClientRequestId, setJobState, addJobLog, onJobStateChange } from './jobs.js'
 import { createMockAdapter, type Adapter } from './adapters/mock.js'
+import { createDshAdapter } from './adapters/dsh.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'
 import type { Job, RoleDef } from './types.js'
@@ -12,6 +13,16 @@ const maxConcurrentPerRole = 1
 
 export function registerAdapters(roleList: RoleDef[]): void {
   for (const role of roleList) adapters.set(role.name, createMockAdapter(role))
+}
+
+// dsh 真实角色：来自插件 /meta 的角色列表，追加进注册表（mcp/server 持有同一数组引用）并建适配器
+export function registerDshRoles(list: { name: string; label?: string }[]): void {
+  for (const r of list) {
+    const role: RoleDef = { name: r.name, harness: 'dsh', level: 'L2', label: r.label ?? r.name }
+    roles.push(role)
+    adapters.set(role.name, createDshAdapter())
+    hubLog('INFO', `注册 dsh 角色：${role.name}（${role.label}）`)
+  }
 }
 
 // 作业结束（终态）后启动该角色队列中的下一个排队作业
@@ -76,7 +87,7 @@ export function dispatch(opts: {
   return { jobId: job.id, state: job.state }
 }
 
-export function steer(jobId: string, message: string, role: string): boolean {
+export async function steer(jobId: string, message: string, role: string): Promise<boolean> {
   const adapter = adapters.get(role)
   const job = getJob(jobId)
   if (!adapter || !job) throw new Error(`未找到作业：${jobId}`)

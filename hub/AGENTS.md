@@ -11,8 +11,9 @@ src/
   registry.ts         角色注册表（M1 内置 5 个模拟角色；M5 改配置文件）
   bus.ts              事件总线：SSE 扇出 + backlog 回放 + hubLog（必须走 stderr！）
   jobs.ts             作业状态机：queued→running→completed/failed/cancelled/blocked；waiter 唤醒 task_wait；onJobStateChange 供调度器
-  orchestrate.ts      dispatch（去重/fromJobs 注入/排队调度）、steer、cancel
+  orchestrate.ts      dispatch（去重/fromJobs 注入/排队调度）、steer、cancel；registerDshRoles（插件 /meta 角色发现）
   adapters/mock.ts    模拟适配器（L2 mock-dsh/mock-codex：可流式可 steer；L1 mock-claude：结束才出结果）
+  adapters/dsh.ts     dsh 真实适配器：转插件 HTTP（POST /command、SSE /events、2s 重连）；turn.ended → 作业状态机；DSH_PANEL_URL/DSH_PANEL_TOKEN 接入
   mcp/server.ts       7 个工具 + panel://jobs/{id}/log 资源模板 + instructions
   http.ts             面板 HTTP：SSE /events、/meta、/logs、/command（人工操作）、静态面板
 ```
@@ -22,12 +23,15 @@ src/
 ```bash
 pnpm install && pnpm build
 pnpm start               # 面板 :3182 + MCP stdio；日志走 stderr
-node test/mcp-e2e.mjs    # 端到端 16 项断言（stdio JSONRPC 全链路）
+node test/mcp-e2e.mjs    # 端到端 16 项断言（stdio JSONRPC 全链路，模拟适配器）
+node test/dsh-e2e.mjs    # dsh 适配器 12 项断言（内置假 dsh 后端，同插件 HTTP 契约）
+node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOKEN 指向真实插件后跑派发全链路
 ```
 
 ## 环境变量
 
 - `HUB_PORT`（默认 3182）、`HUB_TOKEN`（默认随机生成，见启动 stderr）
+- `DSH_PANEL_URL`（配置后接入 dsh 插件并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
 - `PANEL_DIST` 默认 `../../dist/static`（仓库根 pnpm build 的产物）
 
 ## 工具语义（master 必读，见 INSTRUCTIONS）

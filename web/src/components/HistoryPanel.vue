@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api } from '../conn'
+import { displayName } from '../store'
 
 interface HistSession {
   id: string
@@ -18,6 +19,34 @@ const sel = ref('')
 const items = ref<HistItem[]>([])
 const body = ref<HTMLElement | null>(null)
 const loading = ref(false)
+const unbinding = ref('')
+
+// 角色会话绑定（来自 /meta 的 roleSessions）：blocked 等异常状态时的自救入口
+const bindings = ref<Record<string, string>>({})
+
+async function loadBindings(): Promise<void> {
+  try {
+    const r = await api('/meta')
+    if (r.ok) {
+      const d = (await r.json()) as { roleSessions?: Record<string, string> }
+      bindings.value = d.roleSessions ?? {}
+    }
+  } catch {
+    /* 后端不可达 */
+  }
+}
+
+// 解绑角色会话：插件 dispose 当前 agent + 清映射，下次派发自动新建干净会话（历史数据仍留在 dsh）
+async function unbind(role: string): Promise<void> {
+  if (!confirm(`解除角色「${displayName(role) || role}」的会话绑定？\n下次派发将新建会话；历史对话仍保留在 dsh 会话目录。`)) return
+  unbinding.value = role
+  try {
+    const r = await api(`/role-session/${encodeURIComponent(role)}`, { method: 'DELETE' })
+    if (r.ok) delete bindings.value[role]
+  } finally {
+    unbinding.value = ''
+  }
+}
 
 async function loadSessions(): Promise<void> {
   try {
@@ -54,15 +83,35 @@ async function pick(id: string): Promise<void> {
   }
 }
 
-onMounted(loadSessions)
+function refreshAll(): void {
+  void loadBindings()
+  void loadSessions().then(() => {
+    if (sel.value) pick(sel.value)
+  })
+}
+
+onMounted(refreshAll)
 </script>
 
 <template>
   <section class="panel-box">
     <h2>
-      历史对话
-      <button class="mini" @click="loadSessions().then(() => { if (sel) pick(sel) })">刷新</button>
+      会话管理
+      <button class="mini" @click="refreshAll">刷新</button>
     </h2>
+
+    <div class="hist-bindings">
+      <div v-if="Object.keys(bindings).length === 0" class="empty">无角色会话绑定。</div>
+      <div v-for="(sid, role) in bindings" :key="role" class="binding">
+        <span class="binding-role">{{ displayName(String(role)) || role }}</span>
+        <span class="binding-sid" :title="sid">{{ sid.slice(0, 18) }}…</span>
+        <button class="mini" :disabled="unbinding === role" @click="unbind(String(role))">
+          {{ unbinding === role ? '解绑中…' : '重置会话' }}
+        </button>
+      </div>
+    </div>
+
+    <h3>历史对话</h3>
     <div class="hist-bar">
       <select v-model="sel" @change="pick(sel)">
         <option value="" disabled>选择会话…</option>

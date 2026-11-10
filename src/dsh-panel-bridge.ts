@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomBytes } from 'node:crypto'
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -11,9 +12,29 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { zstdDecompressSync } from 'node:zlib'
+
+// dsh 会话日志按 flush 追加 zstd 帧（多帧拼接），zstdDecompressSync 只解第一帧，需逐帧解码
+function zstdDecodeAll(buf: Buffer): string {
+  const magic = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
+  const parts: Buffer[] = []
+  let start = 0
+  let idx = buf.indexOf(magic, 1)
+  for (;;) {
+    const end = idx === -1 ? buf.length : idx
+    try {
+      parts.push(zstdDecompressSync(buf.subarray(start, end)))
+    } catch {
+      // 压缩数据里可能出现伪魔数：跳过这个切分点继续找（末尾仍失败则整体报错）
+      if (idx === -1) throw new Error('会话 zstd 数据无法解码')
+    }
+    if (idx === -1) return Buffer.concat(parts).toString('utf8')
+    start = idx
+    idx = buf.indexOf(magic, idx + 1)
+  }
+}
 import { dirname, join, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
-import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
@@ -25,15 +46,16 @@ import {
   type RolePreset,
 } from './game-presets.js'
 import type { PanelCommand, PanelEvent, PanelEventType } from './panel-event.js'
+import { createSseHub, isLocalOrigin, readBody } from './server/http-shell.js'
 
 export { GAME_PRESETS }
 
 export const name = 'dsh-panel-bridge'
-export const inject = ['agents', 'sessions']
+export const inject = ['agents', 'sessions', 'agentDefaultModel'] // 部署默认路由（角色未显式配置 provider/model 时继承）
 
 export interface Config {
   port?: number // 默认 3180，只监听 127.0.0.1
-  panelHtml?: string // 本地面板页面路径；页面里的 __PANEL_TOKEN__ 会被替换
+  token?: string // 固定 token：供 hub 等本机服务接入 /command 与 /events；省略时每次启动随机生成
   roles?: Record<string, RoleConfig> // 角色 → 模型；配置 preset 后此项作为对预置角色的覆盖
   preset?: string // 启动时激活的预设（'client' | 'server' 或本地自定义预设名），见 GAME_PRESETS
   presetsFile?: string // 预设覆盖与激活状态的持久化文件；默认 ~/.synapse-agent-panel/presets.json
@@ -47,8 +69,8 @@ export interface Config {
 // 运行时配置 schema：dsh 激活插件前用它校验/补默认值，插件管理和 Config Editor 也据此生成 JSON Schema
 export const Config: Schema<Config> = Schema.object({
   port: Schema.natural().default(3180).description('面板 HTTP 端口（仅监听 127.0.0.1）'),
-  panelHtml: Schema.string().description(
-    '自定义面板入口 HTML 的绝对路径；省略时使用插件同目录的 static/index.html',
+  token: Schema.string().description(
+    '固定 token（供 hub 等本机服务接入 /command 与 /events）；省略时每次启动随机生成，从启动日志/panel.log 查',
   ),
   preset: Schema.string().description(
     "启动时激活的预设名（内置 'client'/'server' 或本地预设）；持久化的激活状态优先",
@@ -114,7 +136,7 @@ function savePresetState(file: string, state: PresetState): void {
 
 export function apply(ctx: Context, config: Config = {}) {
   const port = config.port ?? 3180
-  const token = randomBytes(16).toString('hex') // 防止任意网页向本地端口发指令
+  const token = config.token || randomBytes(16).toString('hex') // 防止任意网页向本地端口发指令
 
   // 日志：桌面版 dsh 由 Finder 启动，宿主子进程 stdout 是 /dev/null，console 输出看不到；
   // 因此除 console 外再落盘一份，地址/token/派发细节都能在文件里翻。logFile: '' / 'off' 关闭。
@@ -132,16 +154,22 @@ export function apply(ctx: Context, config: Config = {}) {
       return String(v)
     }
   }
+  // 本地时区时间戳：panel.log 与 /logs 视图统一用它（ISO UTC 在日志里不好对照）
+  const localStamp = (): string => {
+    const d = new Date()
+    const p = (n: number): string => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  }
   const logTail: string[] = [] // 环形缓冲：供 /logs 在界面查看（panel.log 的内存镜像）
   const appendLog = (level: string, args: unknown[]): void => {
-    const line = `${new Date().toISOString().slice(11, 19)} ${level} ${args.map(fmtArg).join(' ')}`
+    const line = `${localStamp().slice(11)} ${level} ${args.map(fmtArg).join(' ')}`
     logTail.push(line)
     if (logTail.length > 800) logTail.shift()
     if (!logPath) return
     try {
       appendFileSync(
         logPath,
-        `${new Date().toISOString()} ${level} [${name}] ${args.map(fmtArg).join(' ')}\n`,
+        `${localStamp()} ${level} [${name}] ${args.map(fmtArg).join(' ')}\n`,
       )
     } catch {
       /* 落盘失败不能影响插件本身 */
@@ -212,8 +240,6 @@ export function apply(ctx: Context, config: Config = {}) {
     dbg(`激活预设 → ${presetName}（已持久化到 ${presetsFile}）`)
   }
 
-  const clients = new Set<ServerResponse>()
-  const backlog: PanelEvent[] = [] // 新打开的面板先回放最近事件
   const roleOf = new Map<string, string>() // agentId → 角色
   const handleOf = new Map<string, any>() // 角色 → AgentHandle（只有创建者能 dispose）
   const taskOfMessage = new Map<string, string>() // messageId → taskId
@@ -245,18 +271,10 @@ export function apply(ctx: Context, config: Config = {}) {
     }
   }
 
-  // SSE 广播：单个客户端写失败时移除该连接，避免一个坏连接影响其他面板
-  const broadcast = (line: string): void => {
-    for (const c of clients) {
-      try {
-        c.write(line)
-      } catch {
-        clients.delete(c)
-      }
-    }
-  }
+  // SSE 广播与 backlog 回放由共享 HTTP 壳提供
+  const hub = createSseHub()
   // 心跳：保持 SSE 连接（浏览器/代理不会因长时间无数据断开）
-  const heartbeat = setInterval(() => broadcast(':\n\n'), 15000)
+  const heartbeat = setInterval(() => hub.broadcast(':\n\n'), 15000)
   heartbeat.unref?.()
 
   const emit = (type: PanelEventType, agentId: string, pl: Record<string, unknown> = {}) => {
@@ -271,9 +289,7 @@ export function apply(ctx: Context, config: Config = {}) {
         harness: 'dsh',
       },
     }
-    backlog.push(e)
-    if (backlog.length > 500) backlog.shift()
-    broadcast(`data: ${JSON.stringify(e)}\n\n`)
+    hub.push(e)
   }
 
   // 文字增量先合并，每 150ms 发一次，避免刷屏
@@ -302,7 +318,7 @@ export function apply(ctx: Context, config: Config = {}) {
         ? String((reason as any).kind)
         : String(reason ?? '')
     if (/cancel|abort|interrupt/i.test(kind)) return 'cancelled'
-    if (/error|block/i.test(kind)) return 'failed'
+    if (/error|block|max-tokens/i.test(kind)) return 'failed' // max-tokens 不是正常结束
     return 'ok'
   }
 
@@ -447,6 +463,24 @@ export function apply(ctx: Context, config: Config = {}) {
   }
 
   // ---------- 指令：面板指令 → dsh Agent API ----------
+  // 部署默认路由：agentDefaultModel 服务的 currentSelection()（已声明 inject，经 ctx 属性访问，
+  // 与 dsh-headless 的用法一致）。取不到/抛错都记日志，路由缺失时 setup 跳过固定、保持原 selection。
+  const deploymentRoute = (): { provider?: string; model?: string } | undefined => {
+    const svc = (ctx as any).agentDefaultModel ?? (ctx as any).reflect?.get?.('agentDefaultModel')
+    if (!svc) {
+      dbg('agentDefaultModel 服务不可用（inject 未解析）')
+      return undefined
+    }
+    try {
+      const sel = svc.currentSelection?.()
+      dbg(`agentDefaultModel → ${sel?.provider}/${sel?.model}`)
+      return sel?.provider && sel?.model ? sel : undefined
+    } catch (err) {
+      dbg(`agentDefaultModel.currentSelection 失败：${String(err)}`)
+      return undefined
+    }
+  }
+
   async function ensure(role: string): Promise<{ handle: any; agentId: string }> {
     const existing = handleOf.get(role)
     if (existing) return { handle: existing, agentId: existing.__agentId }
@@ -456,10 +490,30 @@ export function apply(ctx: Context, config: Config = {}) {
       ...(rc.provider ? { provider: rc.provider } : {}),
       ...(rc.model ? { model: rc.model } : {}),
     }
-    // 角色级 setup：提示词 persona section + 可选的工具白/黑名单（resume 与 create 都接受）
+    // 显式路由：角色未配 provider/model 时取部署默认（agentDefaultModel 服务），不交空 agentOptions。
+    // 新建会话没有 recorded selection，空 options 会在 turn 期落到不可用的默认提案（如 provider "deepseek"）。
+    if (!agentOptions.provider || !agentOptions.model) {
+      const def = deploymentRoute()
+      if (def?.provider && def?.model) {
+        if (!agentOptions.provider) agentOptions.provider = def.provider
+        if (!agentOptions.model) agentOptions.model = def.model
+        dbg(`角色 ${role} 继承部署默认路由 ${def.provider}/${def.model}`)
+      }
+    }
+    // 角色级 setup：路由固定 + 提示词 persona section + 可选的工具白/黑名单（resume 与 create 都接受）。
+    // 真机 dsh 不自动应用 agentOptions 路由（尤其 resume 会沿用会话里记录的旧 selection），
+    // 与 dsh-agent-loop 的 applyConfiguredRoute 对齐：setup 里用 agent.model.select 显式固定。
+    const hasRoute = Boolean(agentOptions.provider && agentOptions.model)
     const setup =
-      rc.prompt || rc.toolsRestrict
-        ? (agentCtx: any) => {
+      rc.prompt || rc.toolsRestrict || hasRoute
+        ? (agentCtx: any, agent: any) => {
+            if (hasRoute && agent?.model?.select) {
+              try {
+                agent.model.select({ provider: agentOptions.provider, model: agentOptions.model })
+              } catch (err) {
+                logError(`角色 ${role} 的路由固定失败（${agentOptions.provider}/${agentOptions.model}）：`, err)
+              }
+            }
             if (rc.prompt)
               agentCtx.systemPrompt.section({
                 name: `panel:role-${role}`,
@@ -480,12 +534,12 @@ export function apply(ctx: Context, config: Config = {}) {
           }
         : undefined
 
-    // 已有持久化 session → 优先 resume（AgentRegistry.resume(ownerCtx, { resumeSessionId, ... })）。
-    // 想把角色绑定到任意已有 dsh 会话：手动编辑 panel-state.json 的 sessions 映射指向该 session id 即可。
+    // 已有持久化 session → 优先 resume（真机签名 agents.resume(options)，ownerCtx 由服务内部持有；
+    // 想把角色绑定到任意已有 dsh 会话：手动编辑 panel-state.json 的 sessions 映射指向该 session id 即可）。
     const known = agentSessions[role]
     if (known) {
       try {
-        const handle = await agents.resume(ctx, {
+        const handle = await agents.resume({
           resumeSessionId: SessionId(known),
           agentOptions,
           setup,
@@ -671,46 +725,13 @@ export function apply(ctx: Context, config: Config = {}) {
     }
   }
 
-  // ---------- 本地 HTTP：静态页面 + SSE 事件流 + 指令入口 ----------
-  // panelHtml 默认取插件同目录的 static/index.html（bundle 安装后无需配置绝对路径）；
-  // /static/* 提供同目录下的 bundle 与资产
-  const panelHtml =
-    config.panelHtml ?? fileURLToPath(new URL('./static/index.html', import.meta.url))
-  const MIME: Record<string, string> = {
-    '.html': 'text/html; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.mjs': 'text/javascript; charset=utf-8',
-    '.svg': 'image/svg+xml',
-    '.png': 'image/png',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.map': 'application/json',
-  }
-  const staticRoot = dirname(resolve(panelHtml))
-  const STATIC_EXT = /\.(js|mjs|css|svg|png|woff2?|map)$/
-  const fileFor = (pathname: string): string | undefined => {
-    if (pathname === '/') return resolve(panelHtml)
-    if (!staticRoot || !pathname.startsWith('/static/')) return
-    const file = resolve(staticRoot, pathname.slice('/static/'.length))
-    if (file.startsWith(staticRoot + sep) && STATIC_EXT.test(file)) return file
-  }
-
-  // 只拒绝非 localhost 来源（页面经 Vite 代理等场景下 Origin 端口不同但仍是本机）；
-  // 任意远程网页伪造不了 token，所以本机来源一律放行
-  const isLocalOrigin = (o: string): boolean => {
-    try {
-      const h = new URL(o).hostname
-      return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '[::1]'
-    } catch {
-      return false
-    }
-  }
-
+  // ---------- 本地 HTTP：API + SSE 事件流 + 指令入口（无头：不伺服面板页面） ----------
+  // 面板由 hub（:3182）伺服；本服务的 /events、/command、/history、/role-session 等接口
+  // 供 hub 代理与面板"后端切换"直连使用。壳设施（SSE/请求体）来自共享模块 src/server/。
   const serve = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`)
     const origin = req.headers.origin
-    // 允许本机其他端口的面板（如 mock :3180 连 host :3181）跨源访问
+    // 允许本机其他端口的面板（如 hub :3182 连插件 :3180）跨源访问
     if (origin && isLocalOrigin(origin)) {
       res.setHeader('access-control-allow-origin', origin)
       res.setHeader('access-control-allow-headers', 'content-type, x-panel-token')
@@ -725,19 +746,11 @@ export function apply(ctx: Context, config: Config = {}) {
       res.writeHead(403).end()
       return
     }
-    // 静态文件：/（index.html，注入 token）、/static/*（Vite 产物）
-    const file = fileFor(url.pathname)
-    if (req.method === 'GET' && file) {
-      try {
-        const body = readFileSync(file).toString('utf8').replaceAll('__PANEL_TOKEN__', token) // 对资产无副作用
-        res
-          .writeHead(200, {
-            'content-type': MIME[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream',
-          })
-          .end(body)
-      } catch {
-        res.writeHead(404).end()
-      }
+    // 根路径：无头服务提示（面板在 hub 上）
+    if (req.method === 'GET' && url.pathname === '/') {
+      res
+        .writeHead(200, { 'content-type': 'text/plain; charset=utf-8' })
+        .end('dsh-panel-bridge API（无头服务）。面板请使用 hub（默认 :3182），或经面板"后端切换"直连本地址。')
       return
     }
     if (
@@ -745,22 +758,9 @@ export function apply(ctx: Context, config: Config = {}) {
       url.pathname === '/events' &&
       url.searchParams.get('token') === token
     ) {
-      dbg(`面板已连接 ${url.pathname}（当前客户端 ${clients.size + 1}）`)
-      res.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        connection: 'keep-alive',
-      })
-      // 先 flush：backlog 为空时若一个字节都不写，浏览器收不到响应头，onopen 不会触发（面板会一直“连接中”）
-      res.flushHeaders()
-      res.write(':\n\n')
-      for (const e of backlog) res.write(`data: ${JSON.stringify(e)}\n\n`)
-      clients.add(res)
-      res.on('error', () => clients.delete(res))
-      req.on('close', () => {
-        clients.delete(res)
-        dbg(`面板断开（剩余 ${clients.size}）`)
-      })
+      dbg(`面板已连接 ${url.pathname}（当前客户端 ${hub.clients.size + 1}）`)
+      hub.attach(req, res)
+      req.on('close', () => dbg(`面板断开（剩余 ${hub.clients.size}）`))
       return
     }
     if (
@@ -768,31 +768,15 @@ export function apply(ctx: Context, config: Config = {}) {
       url.pathname === '/command' &&
       req.headers['x-panel-token'] === token
     ) {
-      let body = ''
-      req.on('data', (c) => {
-        body += c
-        if (body.length > 65536) req.destroy()
-      })
-      req.on('end', async () => {
-        try {
-          await dispatch(JSON.parse(body) as PanelCommand)
-          res.writeHead(204).end()
-        } catch (err) {
-          res.writeHead(400).end(String(err))
-        }
-      })
+      const body = await readBody(req, 65536)
+      try {
+        await dispatch(JSON.parse(body) as PanelCommand)
+        res.writeHead(204).end()
+      } catch (err) {
+        res.writeHead(400).end(String(err))
+      }
       return
     }
-    const readBody = (req: ServerResponse['req']): Promise<string> =>
-      new Promise((resolveBody, rejectBody) => {
-        let b = ''
-        req.on('data', (c) => {
-          b += c
-          if (b.length > 262144) req.destroy()
-        })
-        req.on('end', () => resolveBody(b))
-        req.on('error', rejectBody)
-      })
 
     // 校验预设结构：roles 每项要有 provider/model，pipeline 非空且每个角色都已定义
     function validatePreset(p: unknown): RolePreset {
@@ -913,12 +897,39 @@ export function apply(ctx: Context, config: Config = {}) {
     if (
       url.pathname.startsWith('/presets') ||
       url.pathname === '/preset/active' ||
+      url.pathname.startsWith('/role-session/') ||
       url.pathname === '/logs' ||
       url.pathname === '/history' ||
       url.pathname === '/history/sessions'
     ) {
       if (req.headers['x-panel-token'] !== token) {
         res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end('token 校验失败')
+        return
+      }
+      // 解绑角色会话：dispose 当前 handle + 清 panel-state 映射，下次派发自动新建干净会话
+      // （会话被 blocked 等异常状态污染时的自救入口，历史对话数据仍保留在 dsh 会话目录）
+      if (req.method === 'DELETE' && url.pathname.startsWith('/role-session/')) {
+        const role = decodeURIComponent(url.pathname.slice('/role-session/'.length))
+        if (!role) {
+          res.writeHead(400).end()
+          return
+        }
+        const handle = handleOf.get(role)
+        if (handle) {
+          handleOf.delete(role)
+          void handle.dispose().catch((err: unknown) => logError(`释放角色 ${role} 的 agent 失败：`, err))
+        }
+        if (agentSessions[role]) {
+          delete agentSessions[role]
+          try {
+            mkdirSync(dirname(stateFile), { recursive: true })
+            writeFileSync(stateFile, `${JSON.stringify({ sessions: agentSessions }, null, 2)}\n`)
+          } catch (err) {
+            logError('会话映射持久化失败：', err)
+          }
+        }
+        dbg(`角色 ${role} 的会话绑定已解除（下次派发新建会话）`)
+        res.writeHead(204).end()
         return
       }
       if (await handlePresets(req, res, url)) return
@@ -931,9 +942,11 @@ export function apply(ctx: Context, config: Config = {}) {
             for (const e of readdirSync(dir, { withFileTypes: true })) {
               const full = join(dir, e.name)
               if (e.isDirectory()) walk(full)
-              else if (e.name.endsWith('.jsonl')) {
+              else if (e.name.endsWith('.jsonl') || e.name.endsWith('.jsonl.zstd')) {
                 const st = statSync(full)
-                list.push({ id: full.slice(base.length + 1, -6), mtime: st.mtimeMs, size: st.size })
+                // 真实 dsh 的会话是 zstd 压缩的 session.v4.jsonl.zstd；id 不含扩展名，两条路径都收
+                const id = full.slice(base.length + 1, e.name.endsWith('.zstd') ? -11 : -6)
+                list.push({ id, mtime: st.mtimeMs, size: st.size })
               }
             }
           }
@@ -955,9 +968,12 @@ export function apply(ctx: Context, config: Config = {}) {
         }
         try {
           const base = resolve(sessionsDir)
-          const file = resolve(base, `${sid}.jsonl`) // sid 可含子目录（相对路径）
-          if (!file.startsWith(base + sep)) throw new Error('session 不在会话目录内')
-          const raw = readFileSync(file, 'utf8')
+          // sid 可含子目录（相对路径）；真实 dsh 会话是 zstd 压缩的 .jsonl.zstd，解压后解析
+          const file = [`${sid}.jsonl`, `${sid}.jsonl.zstd`]
+            .map((f) => resolve(base, f))
+            .find((f) => existsSync(f))
+          if (!file || !file.startsWith(base + sep)) throw new Error('会话日志不存在')
+          const raw = file.endsWith('.zstd') ? zstdDecodeAll(readFileSync(file)) : readFileSync(file, 'utf8')
           // 事件溯源 JSONL → 对话序列；字段名按 0.2.2-rc.1 类型，未知事件跳过
           const textOf = (content: any): string =>
             Array.isArray(content)
@@ -977,8 +993,9 @@ export function apply(ctx: Context, config: Config = {}) {
             }
             const type = String(obj?.type ?? '')
             const d = obj?.data ?? {}
+            // user/message 的 content 直接在 data 上（无 message 包裹），assistant 包在 message 里
             if (type === 'user/message')
-              items.push({ kind: 'user', turn: d.turn, text: textOf(d.message?.content).slice(0, 4000) })
+              items.push({ kind: 'user', turn: d.turn, text: textOf(d.content ?? d.message?.content).slice(0, 4000) })
             else if (type === 'assistant/message')
               items.push({ kind: 'assistant', turn: d.turn, text: textOf(d.message?.content).slice(0, 8000) })
             else if (type === 'turn/start' && items.length)
@@ -1055,14 +1072,14 @@ export function apply(ctx: Context, config: Config = {}) {
   // 注册为 effect：插件卸载时自动关闭服务并释放自己创建的 agent
   ctx.effect(() => {
     server.listen(port, '127.0.0.1', () => {
-      log(`http://127.0.0.1:${port}/  token=${token}`)
+      log(`API http://127.0.0.1:${port}  token=${token}（build route-pin-5；无头服务，面板在 hub 上）`)
       if (logPath) log(`日志文件：${logPath}`)
     })
     return () => {
       clearInterval(heartbeat)
       if (timer) clearTimeout(timer)
-      for (const c of clients) c.end()
-      clients.clear()
+      for (const c of hub.clients) c.end()
+      hub.clients.clear()
       server.close()
       for (const h of handleOf.values()) void h.dispose()
       handleOf.clear()

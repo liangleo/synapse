@@ -152,7 +152,9 @@ textarea {
 }
 
 #role {
-  width: 130px;
+  width: 200px;
+  // 右侧留出中文提示（.role-hint）的空间，避免与输入文本挤在一起
+  padding-right: 92px;
 }
 #tid {
   width: 210px;
@@ -182,6 +184,18 @@ button {
 // 角色输入框的自定义下拉
 .role-wrap {
   position: relative;
+}
+
+// 选中已知角色时的中文提示（贴在输入框右侧）
+.role-hint {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--mut);
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .suggest {
@@ -550,17 +564,52 @@ aside {
   color: var(--mut);
 }
 
+// 角色会话绑定区（会话管理）
+.hist-bindings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--bd);
+  border-radius: $radius-sm;
+
+  .empty {
+    margin: 0;
+  }
+}
+
+.binding {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.binding-role {
+  color: var(--tx);
+  min-width: 72px;
+}
+
+.binding-sid {
+  flex: 1;
+  min-width: 0;
+  color: var(--mut);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
 .hist-text {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
-#logview {
+.logview {
   overflow: auto;
   flex: 1;
   min-width: 0; // flex 子元素默认不收缩，长日志会把内容撑出面板框
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   margin: 0;
   padding: 6px 12px;
   font:

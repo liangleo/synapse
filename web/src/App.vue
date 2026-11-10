@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import AgentCard from './components/AgentCard.vue'
 import CommandBar from './components/CommandBar.vue'
 import EventLog from './components/EventLog.vue'
@@ -27,6 +27,14 @@ function switchBackend(value: string): void {
   saveConn()
   location.reload()
 }
+
+// 卡片排序：进行中（thinking/working）在前，已结束（done/idle/failed）下沉且弱化
+const RANK: Record<string, number> = { thinking: 0, working: 0, idle: 1, done: 2, failed: 2 }
+const agentList = computed(() =>
+  [...store.agents.values()].sort(
+    (a, b) => (RANK[a.s] ?? 3) - (RANK[b.s] ?? 3) || (a.t ?? 0) - (b.t ?? 0),
+  ),
+)
 
 onMounted(() => {
   // 初始化元信息：当前预设、流水线、预置角色（失败不影响主流程）
@@ -101,7 +109,7 @@ onUnmounted(() => es?.close())
   <main>
     <section>
       <div class="grid">
-        <AgentCard v-for="x in store.agents.values()" :key="x.id" :agent="x" />
+        <AgentCard v-for="x in agentList" :key="x.id" :agent="x" />
       </div>
       <p v-if="store.agents.size === 0" class="empty">
         等待事件。在 dsh 里发起一次对话，或向某个角色派发任务。

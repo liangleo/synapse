@@ -12,15 +12,22 @@ const cls = computed(() => [
   {
     m: !props.agent.parent,
     sel: store.sel === props.agent.id,
-    end: props.agent.ended,
+    // 终态（ended/done/failed/idle）卡片弱化显示，视觉焦点留给进行中的作业
+    end: Boolean(props.agent.ended || props.agent.s === 'done' || props.agent.s === 'failed' || props.agent.s === 'idle'),
   },
 ])
 const pct = computed(() =>
   props.agent.steps < 0 ? 100 : Math.round(100 * (1 - 1 / (1 + props.agent.steps * 0.5))),
 )
 const recentLog = computed(() => props.agent.log.slice(-4))
-// master 卡不显示操作按钮（编排中止通过卡住的那一步操作）
-const actionable = computed(() => Boolean(props.agent.role) && props.agent.role !== store.meta.master)
+// master 卡不显示操作按钮（编排中止通过卡住的那一步操作）；
+// 只有忙碌中的作业可打回/中断——终态（idle/done/failed）没有活动作业，操作只会得到 hub 报错
+const actionable = computed(
+  () =>
+    Boolean(props.agent.role) &&
+    props.agent.role !== store.meta.master &&
+    (props.agent.s === 'thinking' || props.agent.s === 'working'),
+)
 
 function act(type: string): void {
   void sendCommand(type, props.agent.role!)

@@ -81,10 +81,11 @@ const agentsService = {
     return makeHandle(id)
   },
 
-  // dsh 的恢复语义：按 resumeSessionId 找回已持久化的 agent；不存在则抛错（插件会回退 create）。
-  // 例外：INITIAL_SESSION 环境变量视为外部已存在的会话，未注册时自动接纳（模拟 dsh 的历史会话，供 resume 测试）。
-  async resume(o, { resumeSessionId, agentOptions, setup }) {
-    const rid = String(resumeSessionId)
+  // dsh 的恢复语义（真机签名 resume(options) 单参数）：按 resumeSessionId 找回已持久化的 agent；
+  // 不存在则抛错（插件会回退 create）。例外：INITIAL_SESSION 环境变量视为外部已存在的会话。
+  async resume(options) {
+    const rid = String(options.resumeSessionId)
+    const { agentOptions, setup } = options ?? {}
     if (!registry.has(rid)) {
       if (rid !== INITIAL_SESSION) throw new Error(`mock-host：session ${rid} 不存在`)
       registry.set(rid, { parent: undefined })
@@ -150,15 +151,17 @@ function makeHandle(agentId) {
   return handle
 }
 
-// ---------- 假 sessions 服务 ----------
+// ---------- 假 services ----------
 const sessionsService = {
   // 插件当前只注入未使用；留个钩子便于以后扩展
 }
-
-// ---------- 事件回放 ----------
 const ctx = new Context()
 ctx.provide('agents', agentsService)
 ctx.provide('sessions', sessionsService)
+// 部署默认路由（插件 inject 声明了 agentDefaultModel）：桌面 dsh 由 @deepseek-ai/dsh-agent-default-model 提供
+ctx.provide('agentDefaultModel', {
+  currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+})
 
 const turnNo = new Map()
 
@@ -270,6 +273,7 @@ const preset = {
 ctx.plugin(plugin, {
   port,
   panelHtml: fileURLToPath(panelHtml),
+  token: process.env.PANEL_TOKEN || undefined, // 固定 token：供 hub 集成测试接入（DSH_PANEL_TOKEN 同值）
   // 游戏开发内置预设：'client'（客户端玩法）或 'server'（服务端逻辑），角色/提示词/流水线全内置
   preset: process.env.PRESET || 'client',
   initialSession: INITIAL_SESSION || undefined,

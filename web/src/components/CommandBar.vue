@@ -27,22 +27,29 @@ const ACTIONS = [
 
 // 自定义下拉：原生 <datalist> 的弹出位置在某些环境下会渲染到视口外
 const open = ref(false)
-// 建议列表 = 服务端预置角色（/meta，含中文名）+ master + 已出现过的 agent 角色
+// 建议列表 = 服务端预置角色（/meta，含中文名）+ 已出现过的 agent 角色。
+// master 是编排者本身、不是可派发角色：hub 不下发，插件直连时（/meta 声明 + 根卡片）也在这里剔除
 const roles = computed(() => {
   const seen = new Set<string>()
-  if (store.meta.master) seen.add(store.meta.master)
   for (const r of store.meta.roles) seen.add(r.name)
   for (const x of store.agents.values()) if (x.role) seen.add(x.role)
-  return [...seen].sort((a, b) => a.localeCompare(b))
+  return [...seen].filter((r) => r && r !== store.meta.master).sort((a, b) => a.localeCompare(b))
 })
 const labelOf = (name: string): string => {
   if (name === store.meta.master) return `${name}（编排入口）`
   return store.meta.roles.find((r) => r.name === name)?.label ?? name
 }
+// 输入值恰好等于某角色名时展示完整列表（否则只能看到自己，无法切换角色）
 const filtered = computed(() => {
   const q = store.cmd.to.trim()
   if (!q) return roles.value
+  if (roles.value.includes(q)) return roles.value
   return roles.value.filter((r) => r.includes(q) || labelOf(r).includes(q))
+})
+// 输入框旁的中文提示（选中已知角色时显示）
+const roleHint = computed(() => {
+  const q = store.cmd.to.trim()
+  return q && labelOf(q) !== q ? labelOf(q) : ''
 })
 
 function pick(r: string): void {
@@ -71,11 +78,13 @@ async function send(c: string): Promise<void> {
         aria-label="角色名"
         autocomplete="off"
         @focus="open = true"
+        @click="open = true"
         @input="open = true"
         @blur="open = false"
         @keydown.escape="open = false"
         @keydown.enter.prevent="filtered.length > 0 && pick(filtered[0]!)"
       />
+      <span v-if="roleHint" class="role-hint">{{ roleHint }}</span>
       <ul v-if="open && filtered.length > 0" class="suggest">
         <li v-for="r in filtered" :key="r">
           <button type="button" @mousedown.prevent="pick(r)">{{ labelOf(r) }}</button>

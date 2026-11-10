@@ -17,6 +17,7 @@ export interface AgentView {
   steps: number
   out: string
   ended?: boolean
+  t: number // 最近一次事件时间（卡片排序用）
 }
 
 export interface EvRow {
@@ -51,7 +52,7 @@ export const store = reactive({
   // 服务端元信息（GET /meta）：当前预设、流水线、预置角色（含中文名）
   meta: {
     preset: '',
-    master: 'master',
+    master: '', // 由 /meta 下发；hub 模式不下发（master 是编排者，不可派发）
     pipeline: [] as string[],
     roles: [] as { name: string; label: string }[],
     // 角色 → dsh 会话 id（initialSession 恢复/新建后由 /meta 下发）
@@ -90,7 +91,7 @@ function fmt(v: unknown): string {
 export function ensureAgent(a: PanelAgent): AgentView {
   let x = store.agents.get(a.id)
   if (!x) {
-    x = { id: a.id, s: 'idle', job: '—', log: [], steps: 0, out: '' }
+    x = { id: a.id, s: 'idle', job: '—', log: [], steps: 0, out: '', t: 0 }
     store.agents.set(a.id, x)
   }
   if (a.role && a.role !== x.role) x.role = a.role
@@ -191,6 +192,7 @@ function touchSession(taskId: unknown, t: number): void {
 // 统一事件入口：SSE onmessage → 这里
 export function handleEvent(e: PanelEvent): void {
   const x = ensureAgent(e.agent)
+  x.t = e.t
   applyEvent(e, x)
   addRow(e, x)
   if (e.pl?.taskId) touchSession(e.pl.taskId, e.t)

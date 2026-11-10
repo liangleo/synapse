@@ -156,7 +156,7 @@ export async function startMcp(): Promise<void> {
     async ({ jobId, message }) => {
       const job = getJob(jobId)
       if (!job) return { isError: true, content: [{ type: 'text' as const, text: `未找到作业：${jobId}` }] }
-      const ok = steer(jobId, message, job.role)
+      const ok = await steer(jobId, message, job.role)
       if (!ok)
         return {
           isError: true,

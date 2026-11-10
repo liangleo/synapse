@@ -4,7 +4,7 @@
 
 | 位置 | 是什么 | 怎么跑 |
 |------|--------|--------|
-| 根 `src/` | **dsh-panel-bridge** 插件：跑在 dsh 宿主内，把 dsh 事件转成面板 SSE | 安装到 dsh profile（`pnpm dsh:add`） |
+| 根 `src/` | **dsh-panel-bridge** 插件：跑在 dsh 宿主内，把 dsh 事件转成面板 SSE；**无头 API**（不伺服面板页面，面板由 hub 伺服） | 安装到 dsh profile（`pnpm dsh:add`） |
 | `web/` | **面板前端**：Vue 3 + Vite + Sass，纯静态产物，任何后端都能伺服 | `pnpm dev`（5173）/ 由后端伺服 |
 | `hub/` | **MCP 控制面 hub**：LLM master 经 MCP 工具编排多 harness，自带面板 HTTP | `pnpm -C hub build && pnpm -C hub start`（3182） |
 
@@ -22,6 +22,7 @@ pnpm smoke            # 13 项端到端断言（真实事件形状）
 pnpm mock / host      # 面板演示 / 插件宿主桩（均带 --watch）
 pnpm dsh:add          # 插件装进 dsh profile（tgz 快照）
 pnpm dsh:add:link     # 同上，但装 dist 目录实时链接（开发推荐）
+pnpm dsh:push         # 开发迭代：build 后 desktop HMR 自动重载（依赖 dsh:add:link 的实时链接）
 pnpm -C hub build && pnpm -C hub start   # 启动 hub（面板 :3182 + MCP stdio）
 ```
 
