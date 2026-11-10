@@ -18,7 +18,7 @@ try {
   /* 首次运行 */
 }
 writeFileSync(join(state, 'seq'), String(seq))
-writeFileSync(join(state, 'last-args.json'), JSON.stringify({ argv, passedSid }))
+writeFileSync(join(state, 'last-args.json'), JSON.stringify({ argv, passedSid, cwd: process.cwd() }))
 
 const sessionId = `session-stub-${seq}`
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`)

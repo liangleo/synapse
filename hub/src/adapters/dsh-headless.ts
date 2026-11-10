@@ -88,7 +88,8 @@ function startJob(job: Job): void {
 
   let child: ChildProcess
   try {
-    child = spawn(cmdline, { shell: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    // worktree 隔离时 job.cwd 指向 hub 建好的 worktree；未隔离则继承 hub 进程 cwd
+    child = spawn(cmdline, { shell: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: job.cwd })
   } catch (err) {
     failJob(job, `spawn 失败：${String(err)}`)
     return
@@ -211,6 +212,7 @@ export function createDshHeadlessAdapter(): Adapter {
   return {
     harness: 'dsh',
     level: 'L1',
+    honorsCwd: true, // 子进程可指定工作目录 → 支持 worktree 隔离
     start(job) {
       startJob(job)
     },

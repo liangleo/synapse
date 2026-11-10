@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
+import { execSync } from 'node:child_process'
 
 const stateDir = mkdtempSync(join(tmpdir(), 'hl-state-'))
 const sessDir = mkdtempSync(join(tmpdir(), 'hl-sess-'))
@@ -40,6 +41,8 @@ const proc = spawn('node', ['dist/index.js'], {
     HUB_HEADLESS_STATE: join(stateDir, 'sessions.json'),
     HUB_MODE_STATE: join(stateDir, 'mode.json'),
     HUB_PRESETS_FILE: join(stateDir, 'presets.json'),
+    HUB_JOBS_DB: join(stateDir, 'jobs.db'),
+    HUB_JOB_TIMEOUT_SEC: '2',
     STUB_STATE: stateDir,
   },
 })
@@ -210,6 +213,23 @@ await sleep(200)
 const team4 = await callTool('team_list', {})
 check('切换预设后角色重注册（dev-c）', (team4.structuredContent?.team ?? []).some((r) => r.role === 'dev-c' && r.harness === 'dsh'), JSON.stringify((team4.structuredContent?.team ?? []).find((r) => r.role === 'dev-c')))
 
+// 8.6 单作业超时：HUB_JOB_TIMEOUT_SEC=2，sleep 作业 2s 后自动 failed
+const tD = await callTool('task_dispatch', { role: 'dev-c', instruction: 'sleep 测超时' })
+const tW = await callTool('task_wait', { jobIds: [tD.structuredContent?.jobId], until: 'all', timeoutSec: 15 })
+const tj = tW.structuredContent?.jobs?.[0]
+check('超时自动中断', tj?.state === 'failed' && String(tj?.error ?? '').includes('超时'), JSON.stringify(tj))
+
+// 8.5 worktree 隔离：派发带 worktree:true → 子进程 cwd 在 worktree、分支名回传
+const wtD = await callTool('task_dispatch', { role: 'dev-c', instruction: 'worktree 测试', worktree: true })
+const wtJobId = wtD.structuredContent?.jobId
+const wtW = await callTool('task_wait', { jobIds: [wtJobId], until: 'all', timeoutSec: 15 })
+check('worktree 作业 completed', wtW.structuredContent?.jobs?.[0]?.state === 'completed', JSON.stringify(wtW.structuredContent?.jobs))
+check('worktree 分支名回传', wtW.structuredContent?.jobs?.[0]?.worktreeBranch === `synapse/${wtJobId}`, JSON.stringify(wtW.structuredContent?.jobs?.[0]))
+const wtArgs = JSON.parse(readFileSync(join(stateDir, 'last-args.json'), 'utf8'))
+check('子进程 cwd 在 worktree 内', wtArgs.cwd?.includes('.synapse-worktrees') && wtArgs.cwd?.endsWith(wtJobId), JSON.stringify(wtArgs.cwd))
+const wtMock = await callTool('task_dispatch', { role: 'dev-c', instruction: '不带 worktree', worktree: false })
+await callTool('task_wait', { jobIds: [wtMock.structuredContent?.jobId], until: 'all', timeoutSec: 15 })
+
 // 活动作业期间拒绝预设变更与模式切换：派发 sleep 作业 → PUT/切模式 409/400 → cancel 后可切
 const d5 = await callTool('task_dispatch', { role: 'dev-c', instruction: 'sleep 等切换' })
 await sleep(300)
@@ -223,8 +243,85 @@ check('cancel 后可切 mock', swMock.status === 200, String(swMock.status))
 const team3 = await callTool('team_list', {})
 check('mock 模式下无 dsh 角色', !(team3.structuredContent?.team ?? []).some((r) => r.harness === 'dsh'), JSON.stringify(team3.structuredContent?.team))
 
-console.log(errors ? `\n${errors} 项失败` : '\ndsh-headless 适配器端到端全部通过')
+// 9. SQLite 持久化：作业写穿 DB，重启后 hub2 恢复历史 + 运行中作业标记 failed
+//    （先切回 headless 派发一个 sleep 作业，直接杀 hub，不 cancel）
+const backHl = await api('/mode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'headless' }) })
+check('切回 headless（预设 p2 → dev-c）', backHl.status === 200, String(backHl.status))
+const persistJob = await callTool('task_dispatch', { role: 'dev-c', instruction: 'sleep 等重启' })
+const persistJobId = persistJob.structuredContent?.jobId
+await sleep(300)
+const beforeStatus = await callTool('task_status', {})
+const historyJobs = (beforeStatus.structuredContent?.jobs ?? []).length
 proc.kill()
+await sleep(300)
+
+const proc2 = spawn('node', ['dist/index.js'], {
+  stdio: ['pipe', 'pipe', 'inherit'],
+  env: {
+    ...process.env,
+    HUB_PORT: '3195',
+    HUB_JOBS_DB: join(stateDir, 'jobs.db'),
+    HUB_MODE_STATE: join(stateDir, 'mode2.json'),
+    HUB_PRESETS_FILE: join(stateDir, 'presets.json'),
+    HUB_HEADLESS_STATE: join(stateDir, 'sessions2.json'),
+    DSH_HEADLESS_ROLES: 'dev-c:开发丙',
+    DSH_HEADLESS_CMD: `node ${stub}`,
+    STUB_STATE: stateDir,
+  },
+})
+const pending2 = new Map()
+let buf2 = ''
+let id2 = 1
+let errors2 = 0
+proc2.stdout.on('data', (d) => {
+  buf2 += d.toString()
+  let idx
+  while ((idx = buf2.indexOf('\n')) >= 0) {
+    const line = buf2.slice(0, idx)
+    buf2 = buf2.slice(idx + 1)
+    if (!line.trim()) continue
+    try {
+      const msg = JSON.parse(line)
+      if (msg.id !== undefined && pending2.has(msg.id)) {
+        pending2.get(msg.id)(msg)
+        pending2.delete(msg.id)
+      }
+    } catch {
+      /* 非 JSON 行忽略 */
+    }
+  }
+})
+const rpc2 = (method, params) => {
+  const id = id2++
+  return new Promise((resolve) => {
+    pending2.set(id, resolve)
+    proc2.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+  })
+}
+const call2 = async (name, args) => (await rpc2('tools/call', { name, arguments: args })).result
+await rpc2('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'hl-e2e-2', version: '0' } })
+proc2.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
+const st2 = await call2('task_status', {})
+const jobs2 = st2.structuredContent?.jobs ?? []
+check('重启后恢复历史作业', jobs2.length >= historyJobs, `恢复 ${jobs2.length} / 之前 ${historyJobs}`)
+const pj2 = jobs2.find((j) => j.jobId === persistJobId)
+check('运行中作业重启后标记 failed', pj2?.state === 'failed', JSON.stringify(pj2))
+const doneJob = jobs2.find((j) => j.jobId === jobId)
+check('终态作业产出完整恢复', doneJob?.state === 'completed', JSON.stringify(doneJob))
+const lg2 = await rpc2('resources/read', { uri: `panel://jobs/${jobId}/log` })
+check('作业日志从 SQLite 恢复', (lg2.result?.contents?.[0]?.text ?? '').includes('【指令】'), '')
+errors += errors2
+
+// 清理测试产生的 worktree 与分支
+try {
+  execSync('git worktree remove --force .synapse-worktrees/' + wtJobId, { cwd: process.cwd() })
+  execSync('git branch -D synapse/' + wtJobId, { cwd: process.cwd() })
+} catch {
+  /* worktree 可能未创建（前面断言失败） */
+}
+
+console.log(errors ? `\n${errors} 项失败` : '\ndsh-headless 适配器端到端全部通过')
+proc2.kill()
 rmSync(stateDir, { recursive: true, force: true })
 rmSync(sessDir, { recursive: true, force: true })
 process.exit(errors ? 1 : 0)

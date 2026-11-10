@@ -7,6 +7,7 @@ import { addJobAction, addJobLog, setJobState } from '../jobs.js'
 export interface Adapter {
   harness: string
   level: 'L1' | 'L2'
+  honorsCwd?: boolean // true=子进程以 job.cwd 为工作目录（worktree 隔离依赖此能力）
   start(job: Job, role: RoleDef): void
   steer(job: Job, message: string): boolean | Promise<boolean> // L1 返回 false（不支持）；dsh 适配器经 HTTP 异步确认
   cancel(job: Job): void

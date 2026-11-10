@@ -35,6 +35,8 @@ export interface Job {
   role: string
   instruction: string
   state: JobState
+  cwd?: string // 子进程工作目录（worktree 隔离时指向 hub 建的 worktree）
+  worktreeBranch?: string // worktree 隔离时的分支名，结果回传给 master
   createdAt: number
   updatedAt: number
   result?: string
