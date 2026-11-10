@@ -153,18 +153,34 @@ function handleNdjson(job: Job, ev: Record<string, unknown>): void {
       // turn_start/turn_end 不单独转发：turn.started 在派发时发，终态由 final 统一落
       break
     }
+    case 'thinking': {
+      // CLI 的思考内容：进作业日志（截断），卡片日志不混入（output 只留给正式回答文本）
+      const t = String(ev.text ?? '').trim()
+      if (t) addJobLog(job.id, `思考：${t.slice(0, 200)}`)
+      break
+    }
     case 'text':
       emit(job, 'output', { text: String(ev.text ?? '') })
       break
     case 'tool_call': {
+      // 工具调用带参数预览，卡片与作业日志都能看到 CLI 在做什么
       const name = String(ev.name ?? '工具调用')
-      addJobAction(job.id, name)
-      emit(job, 'tool.started', { action: name, name })
+      const raw = ev.arguments ?? ev.args ?? ev.input ?? ''
+      const args = typeof raw === 'string' ? raw : JSON.stringify(raw)
+      const action = args.trim() && args !== '{}' ? `${name} ${args.slice(0, 160)}` : name
+      addJobAction(job.id, action)
+      emit(job, 'tool.started', { action, name })
       break
     }
-    case 'tool_result':
+    case 'tool_result': {
+      const name = String(ev.name ?? '')
+      const err = ev.error as { message?: string } | undefined
+      const out = typeof ev.output === 'string' ? ev.output : typeof ev.result === 'string' ? ev.result : ''
+      if (err) addJobLog(job.id, `↳ ${name} 失败：${String(err.message ?? '').slice(0, 200)}`)
+      else if (out.trim()) addJobLog(job.id, `↳ ${name} 结果：${out.slice(0, 200)}`)
       emit(job, 'tool.finished', { ok: !ev.error, name: ev.name })
       break
+    }
     case 'error':
       failJob(job, `dsh runner 错误：${String((ev as { message?: string }).message ?? 'unknown')}`)
       break

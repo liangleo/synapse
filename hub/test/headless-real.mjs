@@ -6,12 +6,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const stateDir = mkdtempSync(join(tmpdir(), 'hl-real-'))
+// 隔离模式/预设/会话映射状态文件，避免读到机器上面板保存的真实配置
 const proc = spawn('node', ['dist/index.js'], {
   stdio: ['pipe', 'pipe', 'inherit'],
   env: {
     ...process.env,
     HUB_PORT: '3196',
     DSH_HEADLESS_ROLES: 'researcher:研究员',
+    HUB_MODE_STATE: join(stateDir, 'mode.json'),
+    HUB_PRESETS_FILE: join(stateDir, 'presets.json'),
     HUB_HEADLESS_STATE: join(stateDir, 'sessions.json'),
   },
 })
@@ -48,17 +51,23 @@ const callTool = async (name, args) => (await rpc('tools/call', { name, argument
 await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'hl-real', version: '0' } })
 proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
 
-const d = await callTool('task_dispatch', { role: 'researcher', instruction: '用一句话说明 HTTP 302 与 307 的语义区别，不要调用工具，直接回答。' })
+const d = await callTool('task_dispatch', {
+  role: 'researcher',
+  instruction: '运行 ls 看当前目录有哪些文件，然后用一句话报告看到了什么。', // 触发工具调用，验证交互内容进作业日志
+})
 const jobId = d.structuredContent?.jobId
 console.log('jobId:', jobId)
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'blocked'])
 let job
-for (;;) {
+for (let i = 0; i < 20; i++) {  // 兜底上限，避免作业卡死时测试挂住
   const w = await callTool('task_wait', { jobIds: [jobId], until: 'all', timeoutSec: 30 })
   job = w.structuredContent?.jobs?.[0]
   console.log('state:', job?.state)
   if (job && TERMINAL.has(job.state)) break
 }
+const lg = await rpc('resources/read', { uri: `panel://jobs/${jobId}/log` })
+console.log('--- 作业日志（CLI 交互内容） ---')
+console.log(lg.result?.contents?.[0]?.text)
 const r = await callTool('task_result', { jobId, detail: 'full' })
 console.log('--- 产出 ---')
 console.log(r.content?.[0]?.text)
