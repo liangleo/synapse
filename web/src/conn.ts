@@ -69,7 +69,7 @@ export async function api(path: string, init: RequestInit = {}): Promise<Respons
 // 预设的后端选项（自定义走 prompt）
 export const BACKENDS = [
   { value: '', label: '当前后端（同源）' },
-  { value: 'http://127.0.0.1:3180', label: 'dsh 插件 / mock（:3180）' },
+  { value: 'http://127.0.0.1:3180', label: 'dsh desktop 插件 / mock（:3180）' },
   { value: 'http://127.0.0.1:3181', label: 'host（:3181）' },
 ]
 

@@ -20,7 +20,7 @@ src/
   role-sessions.ts    角色→会话 id 映射（dsh-headless 与 claude 共用，HUB_ROLE_SESSIONS；面板 /meta roleSessions 与解绑）
   dsh-logs.ts         headless 模式下 hub 自服务历史会话：扫描/解析 ~/.dsh/sessions 的 zstd 多帧 session.v4.jsonl.zstd
   mode.ts             dsh 接入模式持久化（hub-mode.json）：面板切换后重启仍生效，env 只作初始默认
-  presets.ts          预设管理（headless 自服务）：与 desktop 插件共用 ~/.synapse-agent-panel/presets.json，角色从激活预设解析，预设变更后重注册
+  presets.ts          预设管理（headless 自服务）：与 dsh desktop 插件共用 ~/.synapse-agent-panel/presets.json，角色从激活预设解析，预设变更后重注册
   mcp/server.ts       7 个工具 + panel://jobs/{id}/log 资源模板 + instructions
   http.ts             面板 HTTP：SSE /events、/meta、/logs、/mode（模式查询/切换）、/command（人工操作）、静态面板；headless 时 /history、/role-session、/presets 本地服务
 ```
@@ -45,7 +45,7 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 
 - `HUB_PORT`（默认 3182）、`HUB_TOKEN`（默认随机生成，见启动 stderr）
 - `DSH_HEADLESS_ROLES`（headless 接入，设置即启用：`"architect:架构师,dev-a"`，同名 mock 角色就地升级；优先级高于 DSH_PANEL_URL）、`DSH_HEADLESS_CMD`（默认 `dsh --profile headless --json`，远程机器写 `ssh <host> dsh …`）、`HUB_HEADLESS_STATE`（role→sessionId 映射文件）、`HUB_MODE_STATE`（模式选择持久化文件）
-- `DSH_PANEL_URL`（desktop 插件接入并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
+- `DSH_PANEL_URL`（dsh desktop 插件接入并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
 - `DSH_SESSIONS_DIR`（默认 ~/.dsh/sessions，headless 历史 API 读取，测试可覆盖）
 - `CLAUDE_CMD`（默认 `claude -p --output-format stream-json --verbose`；hub 被 MCP 拉起时 PATH 可能缺 claude，写绝对路径）、`CLAUDE_HEADLESS_ROLES`（无预设文件时的角色兜底）
 - `CODEX_CMD`（默认 `codex exec --json --skip-git-repo-check --sandbox workspace-write`）、`CODEX_RESUME_CMD`（默认 `codex exec resume`）、`CODEX_HEADLESS_ROLES`（无预设文件时的角色兜底）
@@ -63,13 +63,13 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 - **Claude Code 适配器**：模式切到 `claude`（面板下拉或 POST /mode），角色同样来自激活预设；权限走默认策略——需审批的工具在无头下自动被拒；嵌套环境变量（CLAUDECODE/CLAUDE_CODE_*）已净化
 - **MCP prompt**：`orchestrate-feature` 模板——功能需求 → 拆解并行派发 → worktree 隔离 → 评审 → 测试 → 汇总分支清单
 - **防注入**：fromJobs 注入的上游产出用不可信输入边界标记包裹
-- **审批（approval_respond）**：延后——headless 无实时审批通道（`--approval-policy never` 自动拒绝），desktop 插件审批桥接待 dsh 侧方案
+- **审批（approval_respond）**：延后——headless 无实时审批通道（`--approval-policy never` 自动拒绝），dsh desktop 插件审批桥接待 dsh 侧方案
 
 ## dsh 接入模式（运行中切换）
 
 - `GET /mode` → `{mode: mock|headless|plugin, roles}`；`POST /mode {mode}` 切换
 - 启动优先级：hub-mode.json 持久化 > DSH_HEADLESS_ROLES > DSH_PANEL_URL；切换会重注册角色（同名 mock 就地升级、不在新清单的 dsh 角色回退默认 mock 定义）
-- **角色统一从预设维护**：headless 角色来自激活预设（presets.json，与 desktop 插件同一份文件；无预设时回退 DSH_HEADLESS_ROLES）。hub 自服务 GET/PUT/DELETE /presets、POST /preset/active，保存/切换预设后自动重注册角色
+- **角色统一从预设维护**：headless 角色来自激活预设（presets.json，与 dsh desktop 插件同一份文件；无预设时回退 DSH_HEADLESS_ROLES）。hub 自服务 GET/PUT/DELETE /presets、POST /preset/active，保存/切换预设后自动重注册角色
 - 有 running/queued 作业时：模式切换被拒（400）、预设变更被拒（409）——重注册会让在途作业没人收尾；面板切换成功后整页重载
 
 ## dsh-headless 凭据（部署新机器时）

@@ -12,7 +12,7 @@ import { api, apiBase, apiToken, BACKENDS, conn, saveConn } from './conn'
 let es: EventSource | undefined
 const showEditor = ref(false)
 // dsh 接入模式（hub /mode）：运行中切换会重注册角色，切换成功后整页重载。
-// headless 角色不在这里维护——与 desktop 插件一样从激活预设读取（预设编辑器是角色的唯一维护入口）。
+// headless 角色不在这里维护——与 dsh desktop 插件一样从激活预设读取（预设编辑器是角色的唯一维护入口）。
 const mode = ref('mock')
 
 async function switchMode(value: string): Promise<void> {
@@ -111,19 +111,19 @@ onUnmounted(() => es?.close())
       <select
         class="ed-toggle"
         :value="mode"
-        title="dsh 接入模式：模拟角色 / dsh CLI（headless）/ desktop 插件；切换会重注册角色"
+        title="dsh 接入模式：模拟角色 / dsh CLI（headless）/ dsh desktop 插件；切换会重注册角色"
         @change="switchMode(($event.target as HTMLSelectElement).value)"
       >
         <option value="mock">模拟角色（无真实 agent）</option>
         <option value="headless">dsh CLI（headless）</option>
         <option value="claude">Claude Code（headless）</option>
         <option value="codex">Codex（headless）</option>
-        <option value="plugin">desktop 插件</option>
+        <option value="plugin">dsh desktop（插件）</option>
       </select>
       <select
         class="ed-toggle"
         :value="conn.base"
-        title="切换后端：mock / host / 真实 dsh 插件"
+        title="切换后端：mock / host / 真实 dsh desktop 插件"
         @change="switchBackend(($event.target as HTMLSelectElement).value)"
       >
         <option v-for="b in BACKENDS" :key="b.value" :value="b.value">{{ b.label }}</option>
