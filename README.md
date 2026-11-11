@@ -5,7 +5,7 @@
 - **面板**：卡片式实时展示每个 agent 的状态、工具调用与流式输出；支持派发、评审、打回、中断。
 - **插件**：以 dsh bundle 形式安装，订阅 dsh 事件转成统一格式的 SSE，把面板指令翻译成 Agent API 调用。
 - **编排（插件侧）**：内置两套游戏开发角色预设（`client` / `server`），master 派发任务后按流水线串行创建子 agent，并把上游产出传给下游。
-- **控制面 hub（`hub/`）**：MCP stdio 服务器 + 面板 HTTP（:3182）。LLM master 通过 `task_dispatch` / `task_wait` / `task_result` 等工具派发与跟踪异步作业；适配器接入 mock / dsh 插件（desktop）/ dsh-headless（无桌面，`dsh --profile headless --json`），运行中可切换接入模式；支持 worktree 隔离、SQLite 作业持久化、单作业超时。详见下文[「控制面 hub」](#控制面-hub)与 `hub/AGENTS.md`。
+- **控制面 hub（`hub/`）**：MCP stdio 服务器 + 面板 HTTP（:3182）。LLM master 通过 `task_dispatch` / `task_wait` / `task_result` 等工具派发与跟踪异步作业；适配器接入 mock / dsh 插件（desktop）/ dsh-headless（无桌面，`dsh --profile headless --json`）/ claude（无头，`claude -p --output-format stream-json`），运行中可切换接入模式；支持 worktree 隔离、SQLite 作业持久化、单作业超时。详见下文[「控制面 hub」](#控制面-hub)与 `hub/AGENTS.md`。
 - **可独立测试**：`pnpm mock` 假后端跑界面，`pnpm host` 用真实 cordis 加载插件跑全链路，`pnpm smoke` 用真实事件形状做断言；hub 有独立的端到端断言（`hub/test/`）。
 - **多后端切换**：顶栏下拉可切「当前后端 / mock(:3180) / host(:3181) / 自定义」，选择与 token 存 localStorage，切换即重载；跨端口访问靠插件对本机 Origin 的 CORS 支持。
 - **界面看日志**：事件流侧栏可切「日志」视图，3 秒轮询 `GET /logs`（token 保护），内容是插件 debug 日志的环形缓冲（与 panel.log 落盘同源，最多 800 行）。
@@ -305,10 +305,11 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 | `mock` | 内置模拟角色（mock-dsh / mock-codex 为 L2，mock-claude 为 L1） | L2 可 |
 | `plugin` | 转 desktop 插件 HTTP（`DSH_PANEL_URL` + `DSH_PANEL_TOKEN`，角色从插件 /meta 自动发现） | 可 |
 | `headless` | spawn `dsh --profile headless --json`（本机或 `ssh` 远机，`DSH_HEADLESS_CMD`），无 desktop 参与，L1 | 不可 |
+| `claude` | spawn `claude -p --output-format stream-json`（`CLAUDE_CMD` 可换绝对路径），L1；需本机 claude CLI 已登录 | 不可 |
 
-headless 模式下 hub 自管 role→session 映射（`HUB_HEADLESS_STATE`）实现会话连续、自服务 `/history` `/role-session` `/presets`（预设与 desktop 插件共用 `presets.json`，角色统一从激活预设维护）。
+headless / claude 模式下 hub 自管 role→session 映射（按 harness 分域，`HUB_ROLE_SESSIONS`）实现会话连续、自服务 `/history` `/role-session` `/presets`（预设与 desktop 插件共用 `presets.json`，角色统一从激活预设维护）。
 
-**测试**：`node hub/test/mcp-e2e.mjs`（MCP 全链路 16 项）、`hub/test/dsh-e2e.mjs`（插件适配器 12 项）、`hub/test/headless-e2e.mjs`（headless 33 项）、`hub/test/headless-real.mjs`（真机验收，需 headless 凭据）。
+**测试**：`node hub/test/mcp-e2e.mjs`（MCP 全链路 16 项）、`hub/test/dsh-e2e.mjs`（插件适配器 12 项）、`hub/test/headless-e2e.mjs`（headless 33 项）、`hub/test/headless-real.mjs`（真机验收，需 headless 凭据）、`hub/test/claude-e2e.mjs`（claude 适配器 11 项）、`hub/test/claude-real.mjs`（真机验收，需 claude 已登录）。
 
 ## 面板功能
 
@@ -350,7 +351,8 @@ headless 模式下 hub 自管 role→session 映射（`HUB_HEADLESS_STATE`）实
 │   │   ├── jobs.ts           # 作业状态机 queued→running→completed/failed/cancelled/blocked
 │   │   ├── orchestrate.ts    # dispatch（去重 / fromJobs 注入 / 排队调度）、steer、cancel
 │   │   ├── mcp/server.ts     # 7 个 MCP 工具 + panel://jobs/{id}/log 资源 + orchestrate-feature prompt
-│   │   ├── adapters/         # mock.ts / dsh.ts（转插件 HTTP）/ dsh-headless.ts（spawn dsh CLI）
+│   │   ├── adapters/         # mock.ts / dsh.ts（转插件 HTTP）/ dsh-headless.ts（spawn dsh CLI）/ claude.ts（spawn claude CLI）
+│   │   ├── role-sessions.ts  # 角色→会话映射（headless 与 claude 共用，按 harness 分域）
 │   │   ├── http.ts           # 面板 HTTP + /mode 模式切换 + headless 本地 API
 │   │   ├── presets.ts        # 预设管理（与插件共用 presets.json，角色从激活预设解析）
 │   │   └── mode.ts / bus.ts / registry.ts / dsh-logs.ts / types.ts
@@ -432,7 +434,8 @@ headless 模式下 hub 自管 role→session 映射（`HUB_HEADLESS_STATE`）实
 面板与 harness 解耦：事件与指令走统一格式（`src/panel-event.ts` 的 `PanelEvent`/`PanelCommand`），每条事件带 `agent.harness` 标记，卡片右上角徽章显示来源。切换 harness = 切换后端适配器：
 
 - **dsh**：已实现，两条路——desktop 插件（`src/dsh-panel-bridge.ts`，cordis 宿主内）与 headless 无桌面接入（`hub/src/adapters/dsh-headless.ts`，spawn `dsh --profile headless --json`）。
-- **codex / claude-code**：待实现。在 hub 里新增一个适配器（照 `hub/src/adapters/` 现有三份实现 `PanelEvent` 翻译 + dispatch），同名 mock 角色即被就地升级；master 侧无需改动。
+- **claude-code**：已实现（`hub/src/adapters/claude.ts`，模式切到 `claude`）。
+- **codex**：待实现。在 hub 里新增一个适配器（照 `hub/src/adapters/` 现有三份实现 `PanelEvent` 翻译 + dispatch），同名 mock 角色即被就地升级；master 侧无需改动。
 
 两种切换方式：**部署期**——同一时刻跑一个适配器，面板用 `VITE_PANEL_TARGET`/`panelHtml` 指向对应端口；**运行时并存**——多个适配器接入控制面 hub（已实现），`/events` 合流、`/command` 按 `agent.harness` 路由，面板无需改动。
 
