@@ -138,7 +138,7 @@ onUnmounted(() => es?.close())
     <p v-if="Object.keys(store.meta.roleSessions).length" class="pipeline">
       会话绑定：
       <span v-for="(sid, role) in store.meta.roleSessions" :key="role" class="sess">
-        {{ displayName(role) || role }} → {{ sid.slice(0, 14) }}…
+        {{ displayName(role) || role }} → {{ sid.id.slice(0, 14) }}…
       </span>
     </p>
   </header>

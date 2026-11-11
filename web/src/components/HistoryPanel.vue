@@ -21,14 +21,18 @@ const body = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const unbinding = ref('')
 
-// 角色会话绑定（来自 /meta 的 roleSessions）：blocked 等异常状态时的自救入口
-const bindings = ref<Record<string, string>>({})
+// 角色会话绑定（来自 /meta 的 roleSessions，值含 harness 标识）：blocked 等异常状态时的自救入口
+interface Binding {
+  id: string
+  harness: string
+}
+const bindings = ref<Record<string, Binding>>({})
 
 async function loadBindings(): Promise<void> {
   try {
     const r = await api('/meta')
     if (r.ok) {
-      const d = (await r.json()) as { roleSessions?: Record<string, string> }
+      const d = (await r.json()) as { roleSessions?: Record<string, Binding> }
       bindings.value = d.roleSessions ?? {}
     }
   } catch {
@@ -102,9 +106,10 @@ onMounted(refreshAll)
 
     <div class="hist-bindings">
       <div v-if="Object.keys(bindings).length === 0" class="empty">无角色会话绑定。</div>
-      <div v-for="(sid, role) in bindings" :key="role" class="binding">
+      <div v-for="(b, role) in bindings" :key="role" class="binding">
         <span class="binding-role">{{ displayName(String(role)) || role }}</span>
-        <span class="binding-sid" :title="sid">{{ sid.slice(0, 18) }}…</span>
+        <span class="binding-harness">{{ b.harness }}</span>
+        <span class="binding-sid" :title="b.id">{{ b.id.slice(0, 18) }}…</span>
         <button class="mini" :disabled="unbinding === role" @click="unbind(String(role))">
           {{ unbinding === role ? '解绑中…' : '重置会话' }}
         </button>

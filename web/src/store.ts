@@ -55,8 +55,8 @@ export const store = reactive({
     master: '', // 由 /meta 下发；hub 模式不下发（master 是编排者，不可派发）
     pipeline: [] as string[],
     roles: [] as { name: string; label: string }[],
-    // 角色 → dsh 会话 id（initialSession 恢复/新建后由 /meta 下发）
-    roleSessions: {} as Record<string, string>,
+    // 角色 → 会话绑定（id + harness 标识，由 /meta 下发；hub 自管模式下值来自 role-sessions）
+    roleSessions: {} as Record<string, { id: string; harness: string }>,
   },
 })
 

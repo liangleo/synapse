@@ -55,12 +55,19 @@ export function clearRoleSession(role: string): void {
   }
 }
 
-// 面板展示用：按角色名合并各 harness 的绑定（同角色多 harness 时后写者胜）
-export function listRoleSessions(): Record<string, string> {
-  const out: Record<string, string> = {}
+// 面板展示用：按角色名合并各 harness 的绑定，值带 harness 标识（同角色多 harness 时后写者胜）
+export interface RoleSessionInfo {
+  id: string
+  harness: string // 'dsh' | 'claude' | 'codex'；遗留无前缀键标 'dsh'
+}
+
+export function listRoleSessions(): Record<string, RoleSessionInfo> {
+  const out: Record<string, RoleSessionInfo> = {}
   for (const [k, sid] of Object.entries(sessions)) {
-    const role = k.includes(':') ? k.slice(k.indexOf(':') + 1) : k
-    if (role) out[role] = sid
+    const i = k.indexOf(':')
+    const role = i > 0 ? k.slice(i + 1) : k
+    const harness = i > 0 ? k.slice(0, i) : 'dsh'
+    if (role) out[role] = { id: sid, harness }
   }
   return out
 }
