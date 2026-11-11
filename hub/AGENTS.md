@@ -15,6 +15,8 @@ src/
   adapters/mock.ts    模拟适配器（L2 mock-dsh/mock-codex：可流式可 steer；L1 mock-claude：结束才出结果）
   adapters/dsh.ts     dsh 真实适配器：转插件 HTTP（POST /command、SSE /events、2s 重连）；turn.ended → 作业状态机；DSH_PANEL_URL/DSH_PANEL_TOKEN 接入
   adapters/dsh-headless.ts  dsh-headless 适配器：spawn `dsh --profile headless --json`（无 desktop，L1）；NDJSON 事件流 → PanelEvent；role→sessionId 映射自管（HUB_HEADLESS_STATE）
+  adapters/claude.ts  Claude Code 适配器（M4）：spawn `claude -p --output-format stream-json`（L1）；--session-id 首跑 / --resume 续会话；净化嵌套会话环境变量
+  role-sessions.ts    角色→会话 id 映射（dsh-headless 与 claude 共用，HUB_ROLE_SESSIONS；面板 /meta roleSessions 与解绑）
   dsh-logs.ts         headless 模式下 hub 自服务历史会话：扫描/解析 ~/.dsh/sessions 的 zstd 多帧 session.v4.jsonl.zstd
   mode.ts             dsh 接入模式持久化（hub-mode.json）：面板切换后重启仍生效，env 只作初始默认
   presets.ts          预设管理（headless 自服务）：与 desktop 插件共用 ~/.synapse-agent-panel/presets.json，角色从激活预设解析，预设变更后重注册
