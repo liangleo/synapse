@@ -6,7 +6,7 @@ import EventLog from './components/EventLog.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import LogPanel from './components/LogPanel.vue'
 import PresetEditor from './components/PresetEditor.vue'
-import { displayName, handleEvent, resetStore, store } from './store'
+import { displayName, handleEvent, normalizeRoleSessions, resetStore, store } from './store'
 import { api, apiBase, apiToken, BACKENDS, conn, saveConn } from './conn'
 
 let es: EventSource | undefined
@@ -58,7 +58,10 @@ onMounted(() => {
   fetch(apiBase() + '/meta')
     .then((r) => (r.ok ? r.json() : null))
     .then((m) => {
-      if (m) Object.assign(store.meta, m)
+      if (m) {
+        m.roleSessions = normalizeRoleSessions(m.roleSessions)
+        Object.assign(store.meta, m)
+      }
     })
     .catch(() => {})
 

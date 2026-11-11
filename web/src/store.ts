@@ -66,6 +66,17 @@ export function displayName(role: string | undefined): string {
   return store.meta.roles.find((r) => r.name === role)?.label ?? role
 }
 
+// roleSessions 兼容归一：旧 hub 返回纯字符串（无 harness 标识），统一成 {id, harness}，避免新旧版本混跑时渲染报错
+export function normalizeRoleSessions(raw: unknown): Record<string, { id: string; harness: string }> {
+  const out: Record<string, { id: string; harness: string }> = {}
+  for (const [role, v] of Object.entries((raw ?? {}) as Record<string, unknown>)) {
+    if (typeof v === 'string') out[role] = { id: v, harness: '' }
+    else if (v && typeof v === 'object' && typeof (v as { id?: unknown }).id === 'string')
+      out[role] = { id: (v as { id: string }).id, harness: String((v as { harness?: unknown }).harness ?? '') }
+  }
+  return out
+}
+
 let evKey = 0
 const MAX_EVENTS = 800 // 事件流上限，避免面板长跑内存无限增长
 

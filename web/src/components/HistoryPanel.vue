@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api } from '../conn'
-import { displayName } from '../store'
+import { displayName, normalizeRoleSessions } from '../store'
 
 interface HistSession {
   id: string
@@ -32,8 +32,8 @@ async function loadBindings(): Promise<void> {
   try {
     const r = await api('/meta')
     if (r.ok) {
-      const d = (await r.json()) as { roleSessions?: Record<string, Binding> }
-      bindings.value = d.roleSessions ?? {}
+      const d = (await r.json()) as { roleSessions?: unknown }
+      bindings.value = normalizeRoleSessions(d.roleSessions)
     }
   } catch {
     /* 后端不可达 */
