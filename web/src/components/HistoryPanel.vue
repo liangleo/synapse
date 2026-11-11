@@ -36,9 +36,9 @@ async function loadBindings(): Promise<void> {
   }
 }
 
-// 解绑角色会话：插件 dispose 当前 agent + 清映射，下次派发自动新建干净会话（历史数据仍留在 dsh）
+// 解绑角色会话：清 hub 侧映射，下次派发自动新建会话（历史数据仍保留在对应 harness 的会话目录）
 async function unbind(role: string): Promise<void> {
-  if (!confirm(`解除角色「${displayName(role) || role}」的会话绑定？\n下次派发将新建会话；历史对话仍保留在 dsh 会话目录。`)) return
+  if (!confirm(`解除角色「${displayName(role) || role}」的会话绑定？\n下次派发将新建会话；历史对话仍保留在对应 harness 的会话目录。`)) return
   unbinding.value = role
   try {
     const r = await api(`/role-session/${encodeURIComponent(role)}`, { method: 'DELETE' })
