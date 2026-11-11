@@ -192,7 +192,7 @@ button {
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--mut);
   pointer-events: none;
   white-space: nowrap;
@@ -290,7 +290,7 @@ main {
   }
 
   .hb {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--mut);
     border: 1px solid var(--bd);
     border-radius: 5px;
@@ -298,7 +298,7 @@ main {
   }
 
   .pill {
-    font-size: 11px;
+    font-size: 12px;
     padding: 1px 8px;
     border-radius: 99px;
     background: var(--in);
@@ -327,9 +327,11 @@ main {
     i {
       display: block;
       height: 100%;
-      width: 0;
+      width: 100%;
       background: var(--c);
-      transition: width 0.3s;
+      transform: scaleX(0);
+      transform-origin: 0 50%;
+      transition: transform 0.3s;
     }
   }
 
@@ -560,7 +562,7 @@ aside {
 .hist-kind {
   display: inline-block;
   margin-right: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--mut);
 }
 
@@ -777,7 +779,7 @@ h1 .ed-toggle {
 
   .step-no {
     color: var(--mut);
-    font-size: 11px;
+    font-size: 12px;
     min-width: 16px;
     font-variant-numeric: tabular-nums;
   }

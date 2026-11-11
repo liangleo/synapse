@@ -64,7 +64,7 @@ function toggleSel(): void {
       <span class="pill" :data-s="agent.s">{{ STATUS_LABEL[agent.s] }}</span>
     </div>
     <div class="job">{{ agent.job }}</div>
-    <div class="bar"><i :style="{ width: pct + '%' }" /></div>
+    <div class="bar"><i :style="{ transform: `scaleX(${pct / 100})` }" /></div>
     <div class="out" :hidden="!agent.out">{{ agent.out }}</div>
     <div class="lg">
       <div v-for="(l, i) in recentLog" :key="i">{{ l }}</div>
