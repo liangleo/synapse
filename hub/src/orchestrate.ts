@@ -57,6 +57,11 @@ export function currentMode(): ModeName {
   return mode
 }
 
+// 角色由 hub 自管（会话映射/预设/历史自服务）的模式：claude 与 headless 同构
+export function isSelfServeMode(): boolean {
+  return mode === 'headless' || mode === 'claude'
+}
+
 // 切换模式：重建真实角色（dsh/claude，不在新清单的回退默认 mock 定义，无默认则移除）。
 // 有 running/queued 作业时拒绝——切换会换掉适配器，在途作业没人收尾。
 export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Promise<{ mode: ModeName; roles: { name: string; label: string }[] }> {

@@ -5,7 +5,7 @@ import { join, resolve, sep } from 'node:path'
 import { backlogSince, subscribe, logTail, hubLog } from './bus.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { listJobs, getJob } from './jobs.js'
-import { steer, cancel, dispatch, applyMode, currentMode } from './orchestrate.js'
+import { steer, cancel, dispatch, applyMode, currentMode, isSelfServeMode } from './orchestrate.js'
 import { roleSession, clearRoleSession } from './role-sessions.js'
 import { dshSessionsDir, listDshSessions, readDshSession } from './dsh-logs.js'
 import { handlePresetsApi, activePipeline } from './presets.js'
@@ -124,7 +124,7 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       // 角色会话绑定随派发动态变化，实时从 dsh 插件查询合并（插件不可达时不阻塞基础 meta）
       void (async () => {
         let roleSessions: Record<string, string> = {}
-        if (currentMode() === 'headless') {
+        if (isSelfServeMode()) {
           // headless 模式：角色会话映射由 hub 自管
           for (const r of roles) {
             const sid = roleSession(r.name)
@@ -145,7 +145,7 @@ export function startHttp(port: number, token: string, panelDist?: string): void
           JSON.stringify({
             preset: 'hub',
             // headless 模式展示激活预设的流水线（角色与预设同源）；其它模式不编排流水线
-            pipeline: currentMode() === 'headless' ? activePipeline() : [],
+            pipeline: isSelfServeMode() ? activePipeline() : [],
             roles: roles.map((r) => ({ name: r.name, label: r.label })),
             roleSessions,
           }),
@@ -170,7 +170,7 @@ export function startHttp(port: number, token: string, panelDist?: string): void
     if (isPluginApi && authed) {
       void (async () => {
       // headless 模式：历史/会话绑定/预设都由 hub 自服务（预设文件与 desktop 插件共用同一份）
-      if (currentMode() === 'headless') {
+      if (isSelfServeMode()) {
         if (req.method === 'GET' && u.pathname === '/history/sessions') {
           return res
             .writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
