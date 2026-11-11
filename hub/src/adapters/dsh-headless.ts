@@ -38,7 +38,7 @@ function emit(job: Job, type: PanelEvent['type'], pl: Record<string, unknown>): 
 }
 
 function startJob(job: Job): void {
-  const sid = roleSession(job.role)
+  const sid = roleSession('dsh', job.role)
   // 指令走 stdin（headless 的 `-` 标记），--session-id 续历史会话；命令串由运营者配置，属可信输入
   const cmdline = `${CMD}${sid ? ` --session-id ${sid}` : ''} --approval-policy never -`
   addJobLog(job.id, `派发 → dsh headless（${sid ? `续会话 ${sid.slice(0, 22)}…` : '新建会话'}）`)
@@ -99,7 +99,7 @@ function handleNdjson(job: Job, ev: Record<string, unknown>): void {
   switch (type) {
     case 'session': {
       const sid = String(ev.sessionId ?? '')
-      if (sid) setRoleSession(job.role, sid)
+      if (sid) setRoleSession('dsh', job.role, sid)
       break
     }
     case 'status': {

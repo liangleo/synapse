@@ -37,7 +37,7 @@ function emit(job: Job, type: PanelEvent['type'], pl: Record<string, unknown>): 
 }
 
 function startJob(job: Job): void {
-  const sid = roleSession(job.role)
+  const sid = roleSession('claude', job.role)
   // 首跑用 --session-id 固定身份（claude 要求 UUID），续跑用 --resume 继承会话上下文
   const sessionFlag = sid ? `--resume ${sid}` : `--session-id ${sid || randomUUID()}`
   const cmdline = `${CLAUDE_CMD} ${sessionFlag}`
@@ -98,7 +98,7 @@ function handleNdjson(job: Job, ev: Record<string, unknown>): void {
     case 'system': {
       if (String(ev.subtype ?? '') === 'init') {
         const sid = String(ev.session_id ?? '')
-        if (sid) setRoleSession(job.role, sid)
+        if (sid) setRoleSession('claude', job.role, sid)
         addJobLog(job.id, `会话 ${sid.slice(0, 12)}…（model=${String(ev.model ?? '?')}）`)
       }
       break

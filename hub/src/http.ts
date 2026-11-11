@@ -6,7 +6,7 @@ import { backlogSince, subscribe, logTail, hubLog } from './bus.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { listJobs, getJob } from './jobs.js'
 import { steer, cancel, dispatch, applyMode, currentMode, isSelfServeMode } from './orchestrate.js'
-import { roleSession, clearRoleSession } from './role-sessions.js'
+import { clearRoleSession, listRoleSessions } from './role-sessions.js'
 import { dshSessionsDir, listDshSessions, readDshSession } from './dsh-logs.js'
 import { handlePresetsApi, activePipeline } from './presets.js'
 
@@ -125,11 +125,8 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       void (async () => {
         let roleSessions: Record<string, string> = {}
         if (isSelfServeMode()) {
-          // headless 模式：角色会话映射由 hub 自管
-          for (const r of roles) {
-            const sid = roleSession(r.name)
-            if (sid) roleSessions[r.name] = sid
-          }
+          // 自管模式：角色会话映射由 hub 维护（按 harness 分域存储，展示按角色名合并）
+          roleSessions = listRoleSessions()
         } else {
           const base = process.env.DSH_PANEL_URL
           if (base) {
