@@ -6,7 +6,7 @@ import { backlogSince, subscribe, logTail, hubLog } from './bus.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { listJobs, getJob } from './jobs.js'
 import { steer, cancel, dispatch, applyMode, currentMode } from './orchestrate.js'
-import { roleSession, clearRoleSession } from './adapters/dsh-headless.js'
+import { roleSession, clearRoleSession } from './role-sessions.js'
 import { dshSessionsDir, listDshSessions, readDshSession } from './dsh-logs.js'
 import { handlePresetsApi, activePipeline } from './presets.js'
 
@@ -196,7 +196,7 @@ export function startHttp(port: number, token: string, panelDist?: string): void
           return res.writeHead(409, { 'content-type': 'text/plain; charset=utf-8' }).end('存在 running/queued 作业，等作业收尾后再改预设（改预设会重注册角色）')
         }
         if (await handlePresetsApi(req, res, u, readBody)) {
-          if (mutatesPreset) void applyMode({ mode: 'headless' }).catch((err) => hubLog('ERROR', `预设变更后重注册角色失败：${String(err)}`))
+          if (mutatesPreset) void applyMode({ mode: currentMode() }).catch((err) => hubLog('ERROR', `预设变更后重注册角色失败：${String(err)}`))
           return
         }
       }

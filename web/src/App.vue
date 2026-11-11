@@ -111,8 +111,9 @@ onUnmounted(() => es?.close())
         title="dsh 接入模式：模拟角色 / dsh CLI（headless）/ desktop 插件；切换会重注册角色"
         @change="switchMode(($event.target as HTMLSelectElement).value)"
       >
-        <option value="mock">模拟角色（无 dsh）</option>
+        <option value="mock">模拟角色（无真实 agent）</option>
         <option value="headless">dsh CLI（headless）</option>
+        <option value="claude">Claude Code（headless）</option>
         <option value="plugin">desktop 插件</option>
       </select>
       <select

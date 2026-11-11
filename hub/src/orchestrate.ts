@@ -8,6 +8,7 @@ import { createJob, getJob, listJobs, findByClientRequestId, setJobState, addJob
 import { createMockAdapter, type Adapter } from './adapters/mock.js'
 import { createDshAdapter, startDshEvents } from './adapters/dsh.js'
 import { createDshHeadlessAdapter, parseHeadlessRoles } from './adapters/dsh-headless.js'
+import { createClaudeAdapter } from './adapters/claude.js'
 import { defaultRoleOf } from './registry.js'
 import { saveMode, type ModeName } from './mode.js'
 import { activePresetRoles } from './presets.js'
@@ -43,6 +44,12 @@ export function registerHeadlessRoles(list: { name: string; label?: string }[]):
   if (list.length) mode = 'headless'
 }
 
+// Claude Code 角色：spawn `claude -p --output-format stream-json`（L1，无运行中 steer）
+export function registerClaudeRoles(list: { name: string; label?: string }[]): void {
+  for (const r of list) upsertRole({ name: r.name, harness: 'claude', level: 'L1', label: r.label ?? r.name }, createClaudeAdapter())
+  if (list.length) mode = 'claude'
+}
+
 // ---------- dsh 接入模式（运行中可切换，面板 POST /mode 驱动） ----------
 // mock=纯模拟；headless=spawn dsh CLI；plugin=desktop 插件。选择持久化到 mode.ts 的配置文件。
 let mode: ModeName = 'mock'
@@ -50,7 +57,7 @@ export function currentMode(): ModeName {
   return mode
 }
 
-// 切换模式：重建 harness=dsh 的真实角色（不在新清单的回退默认 mock 定义，无默认则移除）。
+// 切换模式：重建真实角色（dsh/claude，不在新清单的回退默认 mock 定义，无默认则移除）。
 // 有 running/queued 作业时拒绝——切换会换掉适配器，在途作业没人收尾。
 export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Promise<{ mode: ModeName; roles: { name: string; label: string }[] }> {
   if (listJobs().some((j) => j.state === 'running' || j.state === 'queued'))
@@ -61,6 +68,11 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
     targets = activePresetRoles()
     if (!targets.length) targets = parseHeadlessRoles(process.env.DSH_HEADLESS_ROLES ?? '')
     if (!targets.length) throw new Error('headless 模式需要角色：在预设编辑里维护角色并激活预设（或设 DSH_HEADLESS_ROLES）')
+  } else if (opts.mode === 'claude') {
+    // 角色同样来自激活预设；无预设文件时回退 CLAUDE_HEADLESS_ROLES
+    targets = activePresetRoles()
+    if (!targets.length) targets = parseHeadlessRoles(process.env.CLAUDE_HEADLESS_ROLES ?? '')
+    if (!targets.length) throw new Error('claude 模式需要角色：在预设编辑里维护角色并激活预设（或设 CLAUDE_HEADLESS_ROLES）')
   } else if (opts.mode === 'plugin') {
     const base = process.env.DSH_PANEL_URL
     if (!base) throw new Error('未配置 DSH_PANEL_URL，无法接入 desktop 插件')
@@ -74,7 +86,7 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
   const names = new Set(targets.map((t) => t.name))
   for (let i = roles.length - 1; i >= 0; i--) {
     const r = roles[i]
-    if (r.harness !== 'dsh' || names.has(r.name)) continue
+    if ((r.harness !== 'dsh' && r.harness !== 'claude') || names.has(r.name)) continue
     const def = defaultRoleOf(r.name)
     if (def) {
       roles[i] = { ...def }
@@ -86,6 +98,7 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
   }
   mode = opts.mode
   if (opts.mode === 'headless') registerHeadlessRoles(targets)
+  else if (opts.mode === 'claude') registerClaudeRoles(targets)
   else if (opts.mode === 'plugin') {
     registerDshRoles(targets)
     startDshEvents()

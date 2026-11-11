@@ -229,7 +229,16 @@ ${roles ? `【角色分工】\n${roles}\n` : ''}
     async (uri, extra: { id?: string }) => {
       const job = getJob(String(extra.id))
       const text = job
-        ? ['【指令】', job.instruction, '【动作】', ...job.actions, '【产出】', job.result ?? job.error ?? '（无）'].join('\n')
+        ? [
+            '【指令】',
+            job.instruction,
+            '【动作】',
+            ...job.actions,
+            '【日志】',
+            ...job.log,
+            '【产出】',
+            job.result ?? job.error ?? '（无）',
+          ].join('\n')
         : '未找到作业'
       return { contents: [{ uri: uri.href, mimeType: 'text/plain', text }] }
     },

@@ -31,6 +31,8 @@ node test/mcp-e2e.mjs    # 端到端 16 项断言（stdio JSONRPC 全链路，�
 node test/dsh-e2e.mjs    # dsh 适配器 12 项断言（内置假 dsh 后端，同插件 HTTP 契约）
 node test/headless-e2e.mjs # dsh-headless 适配器 33 项断言（stub 事件流 + 假会话目录 + 模式切换/预设/worktree/SQLite 持久化/超时）
 node test/headless-real.mjs # headless 真机验收：真 dsh CLI 跑一单含工具调用的作业（需 headless 凭据）
+node test/claude-e2e.mjs   # Claude Code 适配器 11 项断言（stub stream-json）
+node test/claude-real.mjs  # claude 真机验收：真 claude CLI 跑一单含工具调用的作业（需已登录）
 node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOKEN 指向真实插件后跑派发全链路
 ```
 
@@ -40,6 +42,8 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 - `DSH_HEADLESS_ROLES`（headless 接入，设置即启用：`"architect:架构师,dev-a"`，同名 mock 角色就地升级；优先级高于 DSH_PANEL_URL）、`DSH_HEADLESS_CMD`（默认 `dsh --profile headless --json`，远程机器写 `ssh <host> dsh …`）、`HUB_HEADLESS_STATE`（role→sessionId 映射文件）、`HUB_MODE_STATE`（模式选择持久化文件）
 - `DSH_PANEL_URL`（desktop 插件接入并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
 - `DSH_SESSIONS_DIR`（默认 ~/.dsh/sessions，headless 历史 API 读取，测试可覆盖）
+- `CLAUDE_CMD`（默认 `claude -p --output-format stream-json --verbose`；hub 被 MCP 拉起时 PATH 可能缺 claude，写绝对路径）、`CLAUDE_HEADLESS_ROLES`（无预设文件时的角色兜底）
+- `HUB_ROLE_SESSIONS`（角色→会话映射文件，dsh-headless 与 claude 共用）
 - `HUB_JOBS_DB`（默认 ~/.synapse-agent-panel/hub-jobs.db，作业 SQLite 存储：重启恢复历史、运行中作业重启标记 failed）
 - `HUB_JOB_TIMEOUT_SEC`（单作业超时秒数，默认 0 不启用；到时自动 cancel 防 run 飞占住并发槽）
 - `SYNAPSE_REPO_ROOT`（worktree 隔离的仓库根，默认 hub 进程 cwd）、`SYNAPSE_ALLOWED_CWDS`（逗号分隔白名单，限制仓库根可选范围，未设不限）
@@ -49,6 +53,7 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 
 - **worktree 隔离**：task_dispatch 传 `worktree: true`（仅支持 job.cwd 的适配器，headless 支持）→ 仓库根建 `synapse/<jobId>` 分支 worktree，子 agent 在分支上干活，作业状态回传 worktreeBranch；合并仍由 master 人工确认
 - **作业持久化**：node:sqlite 写穿（jobs/job_lines 两表），task_status/task_result/资源日志重启后可用
+- **Claude Code 适配器**：模式切到 `claude`（面板下拉或 POST /mode），角色同样来自激活预设；权限走默认策略——需审批的工具在无头下自动被拒；嵌套环境变量（CLAUDECODE/CLAUDE_CODE_*）已净化
 - **MCP prompt**：`orchestrate-feature` 模板——功能需求 → 拆解并行派发 → worktree 隔离 → 评审 → 测试 → 汇总分支清单
 - **防注入**：fromJobs 注入的上游产出用不可信输入边界标记包裹
 - **审批（approval_respond）**：延后——headless 无实时审批通道（`--approval-policy never` 自动拒绝），desktop 插件审批桥接待 dsh 侧方案

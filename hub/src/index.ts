@@ -9,6 +9,8 @@ import { startMcp } from './mcp/server.js'
 import { registerAdapters, registerDshRoles, registerHeadlessRoles, applyMode } from './orchestrate.js'
 import { startDshEvents } from './adapters/dsh.js'
 import { parseHeadlessRoles, CMD as HEADLESS_CMD } from './adapters/dsh-headless.js'
+import { CLAUDE_CMD } from './adapters/claude.js'
+import { registerClaudeRoles } from './orchestrate.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'
 import { loadMode } from './mode.js'
@@ -26,6 +28,13 @@ const dshUrl = process.env.DSH_PANEL_URL
 // dsh 接入模式优先级：面板切换持久化的配置（mode.ts 文件，重启仍生效）> DSH_HEADLESS_ROLES > DSH_PANEL_URL。
 // env 可同时配置 headless 与插件：headless 优先；持久化模式恢复失败时也回落到这段 env 逻辑。
 async function applyEnvMode(): Promise<void> {
+  const claudeRoles = process.env.CLAUDE_HEADLESS_ROLES
+  if (!process.env.DSH_HEADLESS_ROLES && claudeRoles) {
+    const list = parseHeadlessRoles(claudeRoles)
+    registerClaudeRoles(list)
+    hubLog('INFO', `claude headless 已接入：${CLAUDE_CMD}（角色 ${list.map((r) => r.name).join(' / ')}）`)
+    return
+  }
   const headlessRoles = process.env.DSH_HEADLESS_ROLES
   if (headlessRoles) {
     if (dshUrl) hubLog('INFO', 'DSH_HEADLESS_ROLES 与 DSH_PANEL_URL 同时配置：headless 优先生效，插件接入跳过')

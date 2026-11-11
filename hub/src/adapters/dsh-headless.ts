@@ -6,59 +6,17 @@
 //   DSH_HEADLESS_CMD    启动命令（默认 `dsh --profile headless --json`）；远程机器写
 //                       `ssh <host> dsh --profile headless --json`，事件流走 ssh stdout
 //   DSH_SESSIONS_DIR    dsh 会话目录（默认 ~/.dsh/sessions，历史会话 API 用，测试可覆盖）
-// 会话连续：role → sessionId 映射由 hub 自管（~/.synapse-agent-panel/hub-headless-sessions.json），
+// 会话连续：role → sessionId 映射由 hub 自管（role-sessions.ts，与 Claude Code 适配器共用），
 // 派发时若有映射则追加 --session-id 续话（headless 校验 cwd 一致，远程模式会话不落本机则首跑即建）。
 // L1 语义：one-shot 无运行中 steer；cancel = 杀进程。
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import type { Job, PanelEvent } from '../types.js'
-import { emitEvent, hubLog } from '../bus.js'
+import { emitEvent } from '../bus.js'
 import { addJobAction, addJobLog, setJobState } from '../jobs.js'
+import { roleSession, setRoleSession } from '../role-sessions.js'
 import type { Adapter } from './mock.js'
 
 export const CMD = process.env.DSH_HEADLESS_CMD ?? 'dsh --profile headless --json'
-// 会话映射状态文件；测试可覆盖，默认与插件面板数据同目录
-const STATE_FILE =
-  process.env.HUB_HEADLESS_STATE ?? join(homedir(), '.synapse-agent-panel', 'hub-headless-sessions.json')
-
-// 角色 → dsh 会话 id（持久化，重启不丢；面板 /meta roleSessions 与解绑走这里）
-const sessionByRole = loadSessions()
-
-function loadSessions(): Record<string, string> {
-  try {
-    return (JSON.parse(readFileSync(STATE_FILE, 'utf8')) as { sessions?: Record<string, string> }).sessions ?? {}
-  } catch {
-    return {}
-  }
-}
-
-function saveSessions(): void {
-  try {
-    mkdirSync(dirname(STATE_FILE), { recursive: true })
-    writeFileSync(STATE_FILE, `${JSON.stringify({ sessions: sessionByRole }, null, 2)}\n`)
-  } catch (err) {
-    hubLog('ERROR', `headless 会话映射持久化失败：${String(err)}`)
-  }
-}
-
-export function roleSession(role: string): string {
-  return sessionByRole[role] ?? ''
-}
-
-export function clearRoleSession(role: string): void {
-  if (sessionByRole[role]) {
-    delete sessionByRole[role]
-    saveSessions()
-    hubLog('INFO', `headless 角色 ${role} 会话绑定已清除（下次派发新建会话）`)
-  }
-}
-
-export function headlessActive(): boolean {
-  return Boolean(process.env.DSH_HEADLESS_ROLES)
-}
 
 // "a:甲,b:乙,b2" → [{name,label}]，缺中文名用原名
 export function parseHeadlessRoles(raw: string): { name: string; label: string }[] {
@@ -80,7 +38,7 @@ function emit(job: Job, type: PanelEvent['type'], pl: Record<string, unknown>): 
 }
 
 function startJob(job: Job): void {
-  const sid = sessionByRole[job.role] ?? ''
+  const sid = roleSession(job.role)
   // 指令走 stdin（headless 的 `-` 标记），--session-id 续历史会话；命令串由运营者配置，属可信输入
   const cmdline = `${CMD}${sid ? ` --session-id ${sid}` : ''} --approval-policy never -`
   addJobLog(job.id, `派发 → dsh headless（${sid ? `续会话 ${sid.slice(0, 22)}…` : '新建会话'}）`)
@@ -141,10 +99,7 @@ function handleNdjson(job: Job, ev: Record<string, unknown>): void {
   switch (type) {
     case 'session': {
       const sid = String(ev.sessionId ?? '')
-      if (sid && sessionByRole[job.role] !== sid) {
-        sessionByRole[job.role] = sid
-        saveSessions()
-      }
+      if (sid) setRoleSession(job.role, sid)
       break
     }
     case 'status': {
