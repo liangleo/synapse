@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from '../conn'
 import { displayName, normalizeRoleSessions } from '../store'
 
@@ -7,6 +7,7 @@ interface HistSession {
   id: string
   mtime: number
   size: number
+  harness?: string
 }
 interface HistItem {
   kind: string
@@ -15,6 +16,26 @@ interface HistItem {
 }
 
 const sessions = ref<HistSession[]>([])
+// harness 筛选：默认跟随当前接入模式（headless/plugin/mock → dsh），可手动改；'@bound' = 只看角色绑定的会话
+const filter = ref('')
+const filterTouched = ref(false)
+// 角色绑定 id 与会话 id 精确匹配：claude 绑定即 session uuid（文件名），codex 绑定 uuid 含在 rollout 文件名里
+function boundRoles(s: HistSession): string[] {
+  return Object.entries(bindings.value)
+    .filter(([, b]) => b.id && (s.id === b.id || s.id.endsWith(`/${b.id}`) || s.id.endsWith(b.id)))
+    .map(([r]) => r)
+}
+const filtered = computed(() =>
+  filter.value === '@bound'
+    ? sessions.value.filter((s) => boundRoles(s).length > 0)
+    : filter.value
+      ? sessions.value.filter((s) => s.harness === filter.value)
+      : sessions.value,
+)
+function sessionLabel(s: HistSession): string {
+  const bound = boundRoles(s).map((r) => displayName(r) || r)
+  return `${s.harness ? `[${s.harness}] ` : ''}${(s.id.split('/').pop() || s.id).slice(0, 26)}…${bound.length ? ` ★${bound.join('/')}` : ''}`
+}
 const sel = ref('')
 const items = ref<HistItem[]>([])
 const body = ref<HTMLElement | null>(null)
@@ -87,6 +108,11 @@ async function pick(id: string): Promise<void> {
   }
 }
 
+function onFilter(): void {
+  filterTouched.value = true
+  if (!filtered.value.some((s) => s.id === sel.value)) pick(filtered.value[0]?.id ?? '')
+}
+
 function refreshAll(): void {
   void loadBindings()
   void loadSessions().then(() => {
@@ -94,7 +120,18 @@ function refreshAll(): void {
   })
 }
 
-onMounted(refreshAll)
+onMounted(() => {
+  refreshAll()
+  // 当前接入模式对应的 harness 作为默认筛选（手动改过则不覆盖）
+  api('/mode')
+    .then(async (r) => {
+      if (!r.ok || filterTouched.value) return
+      const d = (await r.json()) as { mode?: string }
+      filter.value = d.mode === 'claude' ? 'claude' : d.mode === 'codex' ? 'codex' : 'dsh'
+      if (!filtered.value.some((s) => s.id === sel.value)) pick(filtered.value[0]?.id ?? '')
+    })
+    .catch(() => {})
+})
 </script>
 
 <template>
@@ -118,10 +155,17 @@ onMounted(refreshAll)
 
     <h3>历史对话</h3>
     <div class="hist-bar">
+      <select v-model="filter" title="历史会话来源筛选，默认跟随当前接入模式" @change="onFilter">
+        <option value="">全部来源</option>
+        <option value="@bound">已绑定（角色会话）</option>
+        <option value="dsh">dsh</option>
+        <option value="claude">claude</option>
+        <option value="codex">codex</option>
+      </select>
       <select v-model="sel" @change="pick(sel)">
         <option value="" disabled>选择会话…</option>
-        <option v-for="s in sessions" :key="s.id" :value="s.id">
-          {{ s.id.slice(0, 22) }}…（{{ new Date(s.mtime).toLocaleString() }}）
+        <option v-for="s in filtered" :key="s.id" :value="s.id">
+          {{ sessionLabel(s) }}（{{ new Date(s.mtime).toLocaleString() }}）
         </option>
       </select>
     </div>

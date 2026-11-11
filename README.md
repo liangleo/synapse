@@ -5,11 +5,11 @@
 - **面板**：卡片式实时展示每个 agent 的状态、工具调用与流式输出；支持派发、评审、打回、中断。
 - **插件**：以 dsh bundle 形式安装，订阅 dsh 事件转成统一格式的 SSE，把面板指令翻译成 Agent API 调用。
 - **编排（插件侧）**：内置两套游戏开发角色预设（`client` / `server`），master 派发任务后按流水线串行创建子 agent，并把上游产出传给下游。
-- **控制面 hub（`hub/`）**：MCP stdio 服务器 + 面板 HTTP（:3182）。LLM master 通过 `task_dispatch` / `task_wait` / `task_result` 等工具派发与跟踪异步作业；适配器接入 mock / dsh desktop 插件/ dsh-headless（无桌面，`dsh --profile headless --json`）/ claude（无头，`claude -p --output-format stream-json`），运行中可切换接入模式；支持 worktree 隔离、SQLite 作业持久化、单作业超时。详见下文[「控制面 hub」](#控制面-hub)与 `hub/AGENTS.md`。
+- **控制面 hub（`hub/`）**：MCP stdio 服务器 + 面板 HTTP（:3182）。LLM master 通过 `task_dispatch` / `task_wait` / `task_result` 等工具派发与跟踪异步作业；适配器接入 mock / dsh desktop 插件/ dsh-headless（无桌面，`dsh --profile headless --json`）/ claude（无头，`claude -p --output-format stream-json`）/ codex（无头，`codex exec --json`），运行中可切换接入模式；支持 worktree 隔离、SQLite 作业持久化、单作业超时。详见下文[「控制面 hub」](#控制面-hub)与 `hub/AGENTS.md`。
 - **可独立测试**：`pnpm mock` 假后端跑界面，`pnpm host` 用真实 cordis 加载插件跑全链路，`pnpm smoke` 用真实事件形状做断言；hub 有独立的端到端断言（`hub/test/`）。
 - **多后端切换**：顶栏下拉可切「当前后端 / mock(:3180) / host(:3181) / 自定义」，选择与 token 存 localStorage，切换即重载；跨端口访问靠插件对本机 Origin 的 CORS 支持。
 - **界面看日志**：事件流侧栏可切「日志」视图，3 秒轮询 `GET /logs`（token 保护），内容是插件 debug 日志的环形缓冲（与 panel.log 落盘同源，最多 800 行）。
-- **历史对话**：侧栏可切「历史」视图——从 dsh 会话日志解析用户/Agent 对话序列，下拉选会话即可查看（日志按工作区分目录存放：`$DSH_HOME/sessions/<工作区>/<会话>.jsonl`，插件递归扫描）；接口 `GET /history/sessions`、`GET /history?session=<id>`（token 保护）。
+- **历史对话**：侧栏可切「历史」视图——从会话日志解析用户/Agent 对话序列，下拉选会话即可查看。hub 自管模式下覆盖三个 harness 的会话目录：dsh（`$DSH_HOME/sessions`，zstd 多帧）/ claude（`~/.claude/projects`）/ codex（`~/.codex/sessions`）；带来源筛选（默认跟随当前接入模式，可手改），支持按角色绑定 session.id 精确过滤（「已绑定」档位 + ★角色标注）。接口 `GET /history/sessions`、`GET /history?session=<id>`（token 保护）。
 - **会话持久化与恢复**：流水线角色的 `role → session` 映射持久化到 `panel-state.json`（`stateFile` 可改路径）。dsh/插件重启后第一次派发某个角色时走 `agents.resume` 恢复原会话上下文（失败自动回退新建并清理映射）；面板角色的历史日志在 `~/.dsh/sessions/` 的 JSONL 里，不会丢。想把角色绑定到任意已有 dsh 会话（如主对话 `session-xxxx`）：手动编辑 `panel-state.json` 的 `sessions` 映射指向该 id，重启插件后即 resume 生效；也可在界面用「会话 xxx」下拉直发到已有会话。
 
 ## 30 秒上手
@@ -298,7 +298,7 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 - **prompt 模板** `orchestrate-feature`：功能需求 → 拆解并行派发 → worktree 隔离 → 评审 → 测试 → 汇总分支清单。
 - **作业持久化**：node:sqlite 写穿（默认 `~/.synapse-agent-panel/hub-jobs.db`），重启恢复历史作业与日志；`HUB_JOB_TIMEOUT_SEC` 超时自动 cancel。
 
-**dsh 三种接入模式**（面板或 `GET/POST /mode` 运行中切换，有在途作业时拒绝）：
+**接入模式**（面板下拉或 `GET/POST /mode` 运行中切换，有在途作业时拒绝）：
 
 | 模式 | 接入方式 | steer |
 | ---- | -------- | ----- |
@@ -306,10 +306,11 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 | `plugin` | 转 dsh desktop 插件 HTTP（`DSH_PANEL_URL` + `DSH_PANEL_TOKEN`，角色从插件 /meta 自动发现） | 可 |
 | `headless` | spawn `dsh --profile headless --json`（本机或 `ssh` 远机，`DSH_HEADLESS_CMD`），无 desktop 参与，L1 | 不可 |
 | `claude` | spawn `claude -p --output-format stream-json`（`CLAUDE_CMD` 可换绝对路径），L1；需本机 claude CLI 已登录 | 不可 |
+| `codex` | spawn `codex exec --json --sandbox workspace-write`（`CODEX_CMD` 可换），L1；产出=最后一次 agent_message | 不可 |
 
-headless / claude 模式下 hub 自管 role→session 映射（按 harness 分域，`HUB_ROLE_SESSIONS`）实现会话连续、自服务 `/history` `/role-session` `/presets`（预设与 dsh desktop 插件共用 `presets.json`，角色统一从激活预设维护）。
+headless / claude / codex 模式下 hub 自管 role→session 映射（按 harness 分域，`HUB_ROLE_SESSIONS`）实现会话连续、自服务 `/history` `/role-session` `/presets`（预设与 dsh desktop 插件共用 `presets.json`，角色统一从激活预设维护）。
 
-**测试**：`node hub/test/mcp-e2e.mjs`（MCP 全链路 16 项）、`hub/test/dsh-e2e.mjs`（插件适配器 12 项）、`hub/test/headless-e2e.mjs`（headless 33 项）、`hub/test/headless-real.mjs`（真机验收，需 headless 凭据）、`hub/test/claude-e2e.mjs`（claude 适配器 11 项）、`hub/test/claude-real.mjs`（真机验收，需 claude 已登录）。
+**测试**：`node hub/test/mcp-e2e.mjs`（MCP 全链路 16 项）、`hub/test/dsh-e2e.mjs`（插件适配器 12 项）、`hub/test/headless-e2e.mjs`（headless 44 项）、`hub/test/headless-real.mjs`（真机验收，需 headless 凭据）、`hub/test/claude-e2e.mjs`（claude 适配器 11 项）、`hub/test/claude-real.mjs`（真机验收）、`hub/test/codex-e2e.mjs`（codex 适配器 11 项）、`hub/test/codex-real.mjs`（真机验收）。
 
 ## 面板功能
 
@@ -321,6 +322,7 @@ headless / claude 模式下 hub 自管 role→session 映射（按 harness 分�
 - **session 选择**：指令栏的目标 session 下拉按后端独立记忆，新流水线自动切到最新；`initialSession` 配置可让角色恢复到已有会话作为初始上下文（多角色共享，真机需核对同 session 多 agent 绑定）。
 - **断线重连**：重连时清空后接收 backlog 回放，避免重复。
 - **预设编辑器**：编辑角色 provider/模型/提示词、拖拽角色组建流水线、保存/另存/激活/删除预设；内置预设改过后可「恢复默认值」移除本地覆盖（走 `/presets` API，持久化到本地）。
+- **会话管理**：各角色当前绑定的会话 id（带 harness 徽标）与「重置会话」入口（`DELETE /role-session/<role>`，清绑定后下次派发自动新建会话）；历史对话下拉带 harness 标识与来源筛选（默认跟随接入模式），「已绑定」档位按绑定 session.id 精确过滤并标注所属角色。
 
 ## 开发
 
@@ -435,7 +437,7 @@ headless / claude 模式下 hub 自管 role→session 映射（按 harness 分�
 
 - **dsh**：已实现，两条路——dsh desktop 插件（`src/dsh-panel-bridge.ts`，cordis 宿主内）与 headless 无桌面接入（`hub/src/adapters/dsh-headless.ts`，spawn `dsh --profile headless --json`）。
 - **claude-code**：已实现（`hub/src/adapters/claude.ts`，模式切到 `claude`）。
-- **codex**：待实现。在 hub 里新增一个适配器（照 `hub/src/adapters/` 现有三份实现 `PanelEvent` 翻译 + dispatch），同名 mock 角色即被就地升级；master 侧无需改动。
+- **codex**：已实现（`hub/src/adapters/codex.ts`，模式切到 `codex`，续跑 `codex exec resume <thread_id>`）。
 
 两种切换方式：**部署期**——同一时刻跑一个适配器，面板用 `VITE_PANEL_TARGET`/`panelHtml` 指向对应端口；**运行时并存**——多个适配器接入控制面 hub（已实现），`/events` 合流、`/command` 按 `agent.harness` 路由，面板无需改动。
 

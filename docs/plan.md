@@ -29,6 +29,7 @@
 - [x] 真机验收：hub 经 MCP 派发 → dsh 角色（DeepSeek 真实模型）执行 → task_result 取回真实产出（integ-drive 2026-11-10 通过；Claude Code 挂 hub MCP 的 master 编排为可选人工步）
 - [x] 真机核对补遗：agents.resume 单参数签名（遗留清单 #1）；resume 不自动应用 agentOptions 路由 → setup 里 agent.model.select 固定（对齐 applyConfiguredRoute）；角色未配路由时经 agentDefaultModel 服务继承部署默认；插件日志改本地时区；`pnpm dsh:push` = build 触发 desktop HMR
 - [x] 面板收尾：会话管理（绑定/解绑/历史对话，解析真实 dsh 的 zstd 多帧 session.v4.jsonl.zstd）、角色下拉剔除 master、hub /meta 合并插件 roleSessions、预设经 hub 代理可编辑
+- [x] 历史对话接入 claude/codex：/history/sessions 合并三 harness 会话（claude/codex 为 JSONL 树，id 加前缀分发读取），面板下拉带 harness 标识；来源筛选（默认跟随当前接入模式，可手改），支持按角色绑定 session.id 精确过滤（已绑定档位 + ★角色标注）；dsh-logs.ts 更名 history.ts
 
 ### M2.5 — dsh-headless 适配器（无 desktop 接入，真机已跑通）
 
@@ -38,19 +39,21 @@
 - [x] 凭据：headless profile 恢复 GUI 登录（credentials/authorization/deepseek-account + agent-default-model 改 deepseek-account 路由）
 - [x] 验收：test/headless-e2e.mjs 16 项断言全过 + test/headless-real.mjs 真机（无 desktop 参与，真实 DeepSeek 模型完成作业取回产出）
 - [x] 运行中切换接入模式：GET/POST /mode（mock / headless / plugin），选择持久化（hub-mode.json，env 降级为初始默认）；有 running/queued 作业时拒绝切换；不在新清单的 dsh 角色回退默认 mock 定义
-- [x] 角色统一从预设维护：headless 角色来自激活预设（与 desktop 插件共用 presets.json），hub 自服务 /presets、/preset/active，保存/切换预设自动重注册角色；/meta 展示预设流水线
+- [x] 角色统一从预设维护：headless 角色来自激活预设（与 dsh desktop 插件共用 presets.json），hub 自服务 /presets、/preset/active，保存/切换预设自动重注册角色；/meta 展示预设流水线
 
-## M3 — Codex 适配器（按需启动：暂跳过，需要时回到此节）
+## M3 — Codex 适配器（2026-11-11 完成，真机已跑通）
 
-- [ ] 实测 `codex app-server` 的事件输出（thread/start、turn/start、item.started、turn.completed）
-- [ ] 适配器：thread/start 派发、turn/start 追加（steer）、取消方式待核对
-- [ ] 验收：codex 角色在面板上呈现完整生命周期
+- [x] 无头事件流实测：`codex exec --json`（thread.started / item.completed[agent_message|command_execution|reasoning|error] / turn.completed|turn.failed）；会话续挂为 `codex exec resume <thread_id>`
+- [x] 适配器 hub/src/adapters/codex.ts：每角色 thread id 映射（role-sessions 按 'codex' 分域）；最后一次 agent_message 为产出；steer 不支持 → 重新 dispatch；cancel = 杀进程；支持 worktree；CODEX_CMD / CODEX_RESUME_CMD 可换
+- [x] 模式系统加 'codex'（面板下拉 + POST /mode），角色来自激活预设（CODEX_HEADLESS_ROLES 兜底）
+- [x] 验收：codex-e2e 11 项（stub JSONL 含 command_execution）+ codex-real 真机（真实 codex CLI 含工具调用）
 
-## M4 — Claude Code 适配器（按需启动：暂跳过，需要时回到此节）
+## M4 — Claude Code 适配器（2026-11-11 完成，真机已跑通）
 
-- [ ] 实测无头会话流式输出（或 HTTP hooks）
-- [ ] 适配器：每作业一个无头会话；steer 不支持 → 重新 dispatch；cancel = 结束进程
-- [ ] 验收：L1 语义（卡片角标、steer UNSUPPORTED）真机呈现
+- [x] 无头事件流实测：`claude -p --output-format stream-json --verbose`（system init / assistant text+tool_use / user tool_result / result）
+- [x] 适配器 hub/src/adapters/claude.ts：每角色固定 session UUID（首跑 `--session-id`、续跑 `--resume`，映射在 role-sessions.ts 按 harness 分域）；steer 不支持 → 重新 dispatch；cancel = 杀进程；支持 worktree
+- [x] 嵌套会话净化：剥离 CLAUDECODE/CLAUDE_CODE_* 环境变量（否则子 claude 报 Not logged in）
+- [x] 验收：claude-e2e 11 项（stub stream-json）+ claude-real 真机（真实 CLI 含工具调用，交互内容进作业日志）
 
 ## M5 — 强化（M3/M4 跳过，先做本节）
 
@@ -58,7 +61,7 @@
 - [x] SQLite 作业存储：node:sqlite 写穿（jobs/job_lines），重启恢复历史作业与日志，running/queued 重启标记 failed（HUB_JOBS_DB）
 - [x] 限制强化：单作业超时 HUB_JOB_TIMEOUT_SEC（到时自动 cancel）；fromJobs 上游产出加不可信输入边界包装；空指令入口拒绝
 - [x] MCP prompt 模板：`orchestrate-feature`（拆解 → 并行派发 → worktree → 评审 → 测试 → 汇总分支清单）
-- [ ] approval_respond + approval.requested：**延后**——headless 无实时审批通道（dsh README 明确 "Headless has no live approval-response channel"），desktop 插件审批桥接需 dsh user-approval 服务方案，待适配模式稳定后评估
+- [ ] approval_respond + approval.requested：**延后**——headless 无实时审批通道（dsh README 明确 "Headless has no live approval-response channel"），dsh desktop 插件审批桥接需 dsh user-approval 服务方案，待适配模式稳定后评估
 
 ## 遗留待核对清单（真机验证时逐项清掉）
 

@@ -3,7 +3,7 @@
 // 以及 headless 模式下 hub 自服务的 /meta roleSessions、/history、/role-session API。
 // 运行：node test/headless-e2e.mjs（在 hub/ 目录下，先 pnpm build）
 import { spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
@@ -11,6 +11,9 @@ import { execSync } from 'node:child_process'
 
 const stateDir = mkdtempSync(join(tmpdir(), 'hl-state-'))
 const sessDir = mkdtempSync(join(tmpdir(), 'hl-sess-'))
+// claude/codex 历史目录也隔离（否则扫到本机真实会话污染断言）
+const claudeDir = join(stateDir, 'claude-projects')
+const codexDir = join(stateDir, 'codex-sessions')
 const stub = new URL('./fixtures/headless-stub.mjs', import.meta.url).pathname
 
 // 预设文件（headless 角色的唯一维护入口，与 desktop 插件共用同一格式）
@@ -29,6 +32,29 @@ const frame1 = zstdCompressSync(Buffer.from(`${JSON.stringify({ type: 'user/mess
 const frame2 = zstdCompressSync(Buffer.from(`${JSON.stringify({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '第二帧' }] } } })}\n`))
 writeFileSync(join(sessDir, 'comp.jsonl.zstd'), Buffer.concat([frame1, frame2]))
 
+// ---------- claude/codex 历史会话 fixture（真实 CLI 的 JSONL 形状） ----------
+const claudeProj = join(claudeDir, '-test-proj')
+mkdirSync(claudeProj, { recursive: true })
+writeFileSync(
+  join(claudeProj, '11111111-2222-3333-4444-555555555555.jsonl'),
+  [
+    JSON.stringify({ type: 'user', message: { content: '你好 claude' } }),
+    JSON.stringify({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: '子代理噪音' }] } }),
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'claude 回答' }, { type: 'tool_use', name: 'Bash' }] } }),
+  ].join('\n') + '\n',
+)
+const codexDay = join(codexDir, '2026', '11', '11')
+mkdirSync(codexDay, { recursive: true })
+writeFileSync(
+  join(codexDay, 'rollout-test.jsonl'),
+  [
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '系统注入' }] } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_instructions>注入' }] } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '你好 codex' }] } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'codex 回答' }] } }),
+  ].join('\n') + '\n',
+)
+
 // ---------- hub（stdio MCP + 面板 HTTP） ----------
 const proc = spawn('node', ['dist/index.js'], {
   stdio: ['pipe', 'pipe', 'pipe'],
@@ -38,7 +64,10 @@ const proc = spawn('node', ['dist/index.js'], {
     DSH_HEADLESS_ROLES: 'architect:架构师,dev-a',
     DSH_HEADLESS_CMD: `node ${stub}`,
     DSH_SESSIONS_DIR: sessDir,
+    CLAUDE_PROJECTS_DIR: claudeDir,
+    CODEX_SESSIONS_DIR: codexDir,
     HUB_HEADLESS_STATE: join(stateDir, 'sessions.json'),
+    HUB_ROLE_SESSIONS: join(stateDir, 'role-sessions.json'),
     HUB_MODE_STATE: join(stateDir, 'mode.json'),
     HUB_PRESETS_FILE: join(stateDir, 'presets.json'),
     HUB_JOBS_DB: join(stateDir, 'jobs.db'),
@@ -134,8 +163,8 @@ await sleep(150)
 const last1 = JSON.parse(readFileSync(join(stateDir, 'last-args.json'), 'utf8'))
 check('首跑不带 --session-id', !last1.passedSid, JSON.stringify(last1))
 const meta = await (await api('/meta')).json()
-const sid1 = meta.roleSessions?.architect
-check('/meta 下发 roleSessions', typeof sid1 === 'string' && sid1.startsWith('session-stub-'), JSON.stringify(meta.roleSessions))
+const sid1 = meta.roleSessions?.architect?.id
+check('/meta 下发 roleSessions', typeof sid1 === 'string' && sid1.startsWith('session-stub-') && meta.roleSessions.architect.harness === 'dsh', JSON.stringify(meta.roleSessions))
 const d2 = await callTool('task_dispatch', { role: 'architect', instruction: '再来一件事' })
 const w2 = await callTool('task_wait', { jobIds: [d2.structuredContent?.jobId], until: 'all', timeoutSec: 15 })
 check('第二单 completed', w2.structuredContent?.jobs?.[0]?.state === 'completed')
@@ -182,10 +211,15 @@ check('解绑后 roleSessions 不含 architect', !meta2.roleSessions?.architect,
 const hs = await (await api('/history/sessions')).json()
 const ids = (hs.sessions ?? []).map((s) => s.id)
 check('/history/sessions 列出两个会话', ids.includes('plain') && ids.includes('comp'), JSON.stringify(ids))
+check('/history/sessions 带 harness 标识', (hs.sessions ?? []).every((s) => s.harness) && ids.includes('claude:-test-proj/11111111-2222-3333-4444-555555555555') && ids.includes('codex:2026/11/11/rollout-test'), JSON.stringify(ids))
 const h1 = await (await api('/history?session=plain')).json()
 check('纯 JSONL 解析', h1.items?.[0]?.text === '你好' && h1.items?.[1]?.text === '回答', JSON.stringify(h1.items))
 const h2 = await (await api('/history?session=comp')).json()
 check('zstd 多帧解析', h2.items?.[0]?.text === '第一帧' && h2.items?.[1]?.text === '第二帧', JSON.stringify(h2.items))
+const h3 = await (await api('/history?session=claude:-test-proj/11111111-2222-3333-4444-555555555555')).json()
+check('claude 历史解析（滤 sidechain 与 tool_use）', h3.items?.length === 2 && h3.items[0].text === '你好 claude' && h3.items[1].text === 'claude 回答' && h3.items[1].kind === 'assistant', JSON.stringify(h3.items))
+const h4 = await (await api('/history?session=codex:2026/11/11/rollout-test')).json()
+check('codex 历史解析（滤 developer 与注入上下文）', h4.items?.length === 2 && h4.items[0].text === '你好 codex' && h4.items[1].text === 'codex 回答', JSON.stringify(h4.items))
 
 // 8. 模式切换与预设：headless 角色从激活预设读取；预设 API 自服务；切换预设重注册；活动作业时拒绝
 const m0 = await (await api('/mode')).json()

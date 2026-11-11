@@ -7,7 +7,7 @@ import { DEFAULT_ROLES as roles } from './registry.js'
 import { listJobs, getJob } from './jobs.js'
 import { steer, cancel, dispatch, applyMode, currentMode, isSelfServeMode } from './orchestrate.js'
 import { clearRoleSession, listRoleSessions } from './role-sessions.js'
-import { dshSessionsDir, listDshSessions, readDshSession } from './dsh-logs.js'
+import { dshSessionsDir, listAllSessions, readSession } from './history.js'
 import { handlePresetsApi, activePipeline } from './presets.js'
 
 const MIME: Record<string, string> = {
@@ -175,12 +175,12 @@ export function startHttp(port: number, token: string, panelDist?: string): void
         if (req.method === 'GET' && u.pathname === '/history/sessions') {
           return res
             .writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-            .end(JSON.stringify({ dir: dshSessionsDir(), sessions: listDshSessions() }))
+            .end(JSON.stringify({ dir: dshSessionsDir(), sessions: listAllSessions() }))
         }
         if (req.method === 'GET' && u.pathname === '/history') {
           try {
             return res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(
-              JSON.stringify({ session: u.searchParams.get('session') ?? '', items: readDshSession(u.searchParams.get('session') ?? '') }),
+              JSON.stringify({ session: u.searchParams.get('session') ?? '', items: readSession(u.searchParams.get('session') ?? '') }),
             )
           } catch (err) {
             return res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end(`会话日志不可读：${String(err)}`)

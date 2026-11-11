@@ -18,7 +18,7 @@ src/
   adapters/claude.ts  Claude Code 适配器（M4）：spawn `claude -p --output-format stream-json`（L1）；--session-id 首跑 / --resume 续会话；净化嵌套会话环境变量
   adapters/codex.ts   Codex 适配器（M3）：spawn `codex exec --json`（L1）；thread id 映射续跑 `exec resume`；CODEX_CMD/CODEX_RESUME_CMD 可换
   role-sessions.ts    角色→会话 id 映射（dsh-headless 与 claude 共用，HUB_ROLE_SESSIONS；面板 /meta roleSessions 与解绑）
-  dsh-logs.ts         headless 模式下 hub 自服务历史会话：扫描/解析 ~/.dsh/sessions 的 zstd 多帧 session.v4.jsonl.zstd
+  history.ts         历史会话读取（headless 模式 hub 自服务）：dsh 的 zstd 多帧 session.v4.jsonl.zstd + claude（~/.claude/projects）与 codex（~/.codex/sessions）的 JSONL，claude:/codex: 前缀分发
   mode.ts             dsh 接入模式持久化（hub-mode.json）：面板切换后重启仍生效，env 只作初始默认
   presets.ts          预设管理（headless 自服务）：与 dsh desktop 插件共用 ~/.synapse-agent-panel/presets.json，角色从激活预设解析，预设变更后重注册
   mcp/server.ts       7 个工具 + panel://jobs/{id}/log 资源模板 + instructions
@@ -32,7 +32,7 @@ pnpm install && pnpm build
 pnpm start               # 面板 :3182 + MCP stdio；日志走 stderr
 node test/mcp-e2e.mjs    # 端到端 16 项断言（stdio JSONRPC 全链路，模拟适配器）
 node test/dsh-e2e.mjs    # dsh 适配器 12 项断言（内置假 dsh 后端，同插件 HTTP 契约）
-node test/headless-e2e.mjs # dsh-headless 适配器 33 项断言（stub 事件流 + 假会话目录 + 模式切换/预设/worktree/SQLite 持久化/超时）
+node test/headless-e2e.mjs # dsh-headless 适配器 44 项断言（stub 事件流 + 假会话目录 + 模式切换/预设/worktree/SQLite 持久化/超时/claude/codex 历史）
 node test/headless-real.mjs # headless 真机验收：真 dsh CLI 跑一单含工具调用的作业（需 headless 凭据）
 node test/claude-e2e.mjs   # Claude Code 适配器 11 项断言（stub stream-json）
 node test/codex-e2e.mjs    # Codex 适配器 11 项断言（stub JSONL）
@@ -46,7 +46,7 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 - `HUB_PORT`（默认 3182）、`HUB_TOKEN`（默认随机生成，见启动 stderr）
 - `DSH_HEADLESS_ROLES`（headless 接入，设置即启用：`"architect:架构师,dev-a"`，同名 mock 角色就地升级；优先级高于 DSH_PANEL_URL）、`DSH_HEADLESS_CMD`（默认 `dsh --profile headless --json`，远程机器写 `ssh <host> dsh …`）、`HUB_HEADLESS_STATE`（role→sessionId 映射文件）、`HUB_MODE_STATE`（模式选择持久化文件）
 - `DSH_PANEL_URL`（dsh desktop 插件接入并从其 /meta 自动发现角色）、`DSH_PANEL_TOKEN`（插件 config.token 同值）
-- `DSH_SESSIONS_DIR`（默认 ~/.dsh/sessions，headless 历史 API 读取，测试可覆盖）
+- `DSH_SESSIONS_DIR`（默认 ~/.dsh/sessions，headless 历史 API 读取，测试可覆盖）、`CLAUDE_PROJECTS_DIR`（默认 ~/.claude/projects）、`CODEX_SESSIONS_DIR`（默认 ~/.codex/sessions）——三者的会话都进面板历史对话下拉
 - `CLAUDE_CMD`（默认 `claude -p --output-format stream-json --verbose`；hub 被 MCP 拉起时 PATH 可能缺 claude，写绝对路径）、`CLAUDE_HEADLESS_ROLES`（无预设文件时的角色兜底）
 - `CODEX_CMD`（默认 `codex exec --json --skip-git-repo-check --sandbox workspace-write`）、`CODEX_RESUME_CMD`（默认 `codex exec resume`）、`CODEX_HEADLESS_ROLES`（无预设文件时的角色兜底）
 - `HUB_ROLE_SESSIONS`（角色→会话映射文件，dsh-headless 与 claude 共用）

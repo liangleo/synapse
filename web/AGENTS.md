@@ -16,7 +16,7 @@ src/
     CommandBar.vue      指令栏（角色下拉 + session 下拉 + 动作按钮）
     EventLog.vue        事件流侧栏
     LogPanel.vue        服务端日志面板（3s 轮询 /logs，最新置顶）
-    HistoryPanel.vue    历史对话面板（/history/sessions + /history）
+    HistoryPanel.vue    历史对话面板（/history/sessions + /history；来源筛选默认跟随接入模式，支持按角色绑定 id 过滤）
     PresetEditor.vue    预设编辑器（角色编辑 + 拖拽流水线 + 恢复默认）
   styles/panel.scss  全部样式（参考稿风格：浅色优先、系统字体、紫主操作）
 ```
