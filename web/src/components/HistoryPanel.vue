@@ -108,7 +108,7 @@ onMounted(refreshAll)
       <div v-if="Object.keys(bindings).length === 0" class="empty">无角色会话绑定。</div>
       <div v-for="(b, role) in bindings" :key="role" class="binding">
         <span class="binding-role">{{ displayName(String(role)) || role }}</span>
-        <span class="binding-harness">{{ b.harness }}</span>
+        <span v-if="b.harness" class="binding-harness">{{ b.harness }}</span>
         <span class="binding-sid" :title="b.id">{{ b.id.slice(0, 18) }}…</span>
         <button class="mini" :disabled="unbinding === role" @click="unbind(String(role))">
           {{ unbinding === role ? '解绑中…' : '重置会话' }}
