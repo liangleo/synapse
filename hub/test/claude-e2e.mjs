@@ -2,7 +2,7 @@
 // 验证派发 → 事件映射 → 会话续挂（--session-id / --resume）→ cancel → L1 steer UNSUPPORTED。
 // 运行：node test/claude-e2e.mjs（在 hub/ 目录下，先 pnpm build）
 import { spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 

@@ -114,6 +114,7 @@ onUnmounted(() => es?.close())
         <option value="mock">模拟角色（无真实 agent）</option>
         <option value="headless">dsh CLI（headless）</option>
         <option value="claude">Claude Code（headless）</option>
+        <option value="codex">Codex（headless）</option>
         <option value="plugin">desktop 插件</option>
       </select>
       <select

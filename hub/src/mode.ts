@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-export type ModeName = 'mock' | 'headless' | 'plugin' | 'claude'
+export type ModeName = 'mock' | 'headless' | 'plugin' | 'claude' | 'codex'
 
 const MODE_FILE =
   process.env.HUB_MODE_STATE ?? join(homedir(), '.synapse-agent-panel', 'hub-mode.json')
@@ -17,7 +17,7 @@ interface SavedMode {
 export function loadMode(): SavedMode | undefined {
   try {
     const d = JSON.parse(readFileSync(MODE_FILE, 'utf8')) as SavedMode
-    if (d.mode === 'headless' || d.mode === 'plugin' || d.mode === 'mock' || d.mode === 'claude') return d
+    if (['headless', 'plugin', 'mock', 'claude', 'codex'].includes(d.mode)) return d
   } catch {
     /* 无文件或坏 JSON：走 env 默认 */
   }

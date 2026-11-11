@@ -6,10 +6,11 @@ import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { startHttp } from './http.js'
 import { startMcp } from './mcp/server.js'
-import { registerAdapters, registerDshRoles, registerHeadlessRoles, applyMode } from './orchestrate.js'
+import { registerAdapters, registerDshRoles, registerHeadlessRoles, registerCodexRoles, applyMode } from './orchestrate.js'
 import { startDshEvents } from './adapters/dsh.js'
 import { parseHeadlessRoles, CMD as HEADLESS_CMD } from './adapters/dsh-headless.js'
 import { CLAUDE_CMD } from './adapters/claude.js'
+import { CODEX_CMD } from './adapters/codex.js'
 import { registerClaudeRoles } from './orchestrate.js'
 import { DEFAULT_ROLES as roles } from './registry.js'
 import { hubLog } from './bus.js'
@@ -29,8 +30,15 @@ const dshUrl = process.env.DSH_PANEL_URL
 // env 可同时配置 headless 与插件：headless 优先；持久化模式恢复失败时也回落到这段 env 逻辑。
 async function applyEnvMode(): Promise<void> {
   const claudeRoles = process.env.CLAUDE_HEADLESS_ROLES
-  if (!process.env.DSH_HEADLESS_ROLES && claudeRoles) {
-    const list = parseHeadlessRoles(claudeRoles)
+  const codexRoles = process.env.CODEX_HEADLESS_ROLES
+  if (!process.env.DSH_HEADLESS_ROLES && (claudeRoles || codexRoles)) {
+    if (codexRoles && !claudeRoles) {
+      const list = parseHeadlessRoles(codexRoles)
+      registerCodexRoles(list)
+      hubLog('INFO', `codex headless 已接入：${CODEX_CMD}（角色 ${list.map((r) => r.name).join(' / ')}）`)
+      return
+    }
+    const list = parseHeadlessRoles(claudeRoles ?? '')
     registerClaudeRoles(list)
     hubLog('INFO', `claude headless 已接入：${CLAUDE_CMD}（角色 ${list.map((r) => r.name).join(' / ')}）`)
     return

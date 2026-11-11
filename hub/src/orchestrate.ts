@@ -9,6 +9,7 @@ import { createMockAdapter, type Adapter } from './adapters/mock.js'
 import { createDshAdapter, startDshEvents } from './adapters/dsh.js'
 import { createDshHeadlessAdapter, parseHeadlessRoles } from './adapters/dsh-headless.js'
 import { createClaudeAdapter } from './adapters/claude.js'
+import { createCodexAdapter } from './adapters/codex.js'
 import { defaultRoleOf } from './registry.js'
 import { saveMode, type ModeName } from './mode.js'
 import { activePresetRoles } from './presets.js'
@@ -50,6 +51,12 @@ export function registerClaudeRoles(list: { name: string; label?: string }[]): v
   if (list.length) mode = 'claude'
 }
 
+// Codex 角色：spawn `codex exec --json`（L1，无运行中 steer）
+export function registerCodexRoles(list: { name: string; label?: string }[]): void {
+  for (const r of list) upsertRole({ name: r.name, harness: 'codex', level: 'L1', label: r.label ?? r.name }, createCodexAdapter())
+  if (list.length) mode = 'codex'
+}
+
 // ---------- dsh 接入模式（运行中可切换，面板 POST /mode 驱动） ----------
 // mock=纯模拟；headless=spawn dsh CLI；plugin=desktop 插件。选择持久化到 mode.ts 的配置文件。
 let mode: ModeName = 'mock'
@@ -59,7 +66,7 @@ export function currentMode(): ModeName {
 
 // 角色由 hub 自管（会话映射/预设/历史自服务）的模式：claude 与 headless 同构
 export function isSelfServeMode(): boolean {
-  return mode === 'headless' || mode === 'claude'
+  return mode === 'headless' || mode === 'claude' || mode === 'codex'
 }
 
 // 切换模式：重建真实角色（dsh/claude，不在新清单的回退默认 mock 定义，无默认则移除）。
@@ -78,6 +85,10 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
     targets = activePresetRoles()
     if (!targets.length) targets = parseHeadlessRoles(process.env.CLAUDE_HEADLESS_ROLES ?? '')
     if (!targets.length) throw new Error('claude 模式需要角色：在预设编辑里维护角色并激活预设（或设 CLAUDE_HEADLESS_ROLES）')
+  } else if (opts.mode === 'codex') {
+    targets = activePresetRoles()
+    if (!targets.length) targets = parseHeadlessRoles(process.env.CODEX_HEADLESS_ROLES ?? '')
+    if (!targets.length) throw new Error('codex 模式需要角色：在预设编辑里维护角色并激活预设（或设 CODEX_HEADLESS_ROLES）')
   } else if (opts.mode === 'plugin') {
     const base = process.env.DSH_PANEL_URL
     if (!base) throw new Error('未配置 DSH_PANEL_URL，无法接入 desktop 插件')
@@ -91,7 +102,7 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
   const names = new Set(targets.map((t) => t.name))
   for (let i = roles.length - 1; i >= 0; i--) {
     const r = roles[i]
-    if ((r.harness !== 'dsh' && r.harness !== 'claude') || names.has(r.name)) continue
+    if ((r.harness === 'mock-dsh' || r.harness === 'mock-codex' || r.harness === 'mock-claude') || names.has(r.name)) continue
     const def = defaultRoleOf(r.name)
     if (def) {
       roles[i] = { ...def }
@@ -104,6 +115,7 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
   mode = opts.mode
   if (opts.mode === 'headless') registerHeadlessRoles(targets)
   else if (opts.mode === 'claude') registerClaudeRoles(targets)
+  else if (opts.mode === 'codex') registerCodexRoles(targets)
   else if (opts.mode === 'plugin') {
     registerDshRoles(targets)
     startDshEvents()
