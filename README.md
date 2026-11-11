@@ -1,11 +1,12 @@
 # synapse-agent-panel
 
-多 agent 协作的可视化面板：一个不依赖特定 harness 的本地 Web 面板（Vue 3 + Vite + Sass），加一个把 DeepSeek Harness（dsh）事件桥接到面板的插件（`dsh-panel-bridge`）。内置 mock server，可脱离 dsh 单独演示与开发界面。
+多 agent 协作的可视化面板 + MCP 控制面 hub：一个不依赖特定 harness 的本地 Web 面板（Vue 3 + Vite + Sass）、一个把 DeepSeek Harness（dsh）事件桥接到面板的插件（`dsh-panel-bridge`），以及一个让 LLM master 经 MCP 工具编排多 harness 子 agent 的控制面 hub（`hub/`）。内置 mock server，可脱离 dsh 单独演示与开发界面。
 
 - **面板**：卡片式实时展示每个 agent 的状态、工具调用与流式输出；支持派发、评审、打回、中断。
 - **插件**：以 dsh bundle 形式安装，订阅 dsh 事件转成统一格式的 SSE，把面板指令翻译成 Agent API 调用。
-- **编排**：内置两套游戏开发角色预设（`client` / `server`），master 派发任务后按流水线串行创建子 agent，并把上游产出传给下游。
-- **可独立测试**：`pnpm mock` 假后端跑界面，`pnpm host` 用真实 cordis 加载插件跑全链路，`pnpm smoke` 用真实事件形状做断言。
+- **编排（插件侧）**：内置两套游戏开发角色预设（`client` / `server`），master 派发任务后按流水线串行创建子 agent，并把上游产出传给下游。
+- **控制面 hub（`hub/`）**：MCP stdio 服务器 + 面板 HTTP（:3182）。LLM master 通过 `task_dispatch` / `task_wait` / `task_result` 等工具派发与跟踪异步作业；适配器接入 mock / dsh 插件（desktop）/ dsh-headless（无桌面，`dsh --profile headless --json`），运行中可切换接入模式；支持 worktree 隔离、SQLite 作业持久化、单作业超时。详见下文[「控制面 hub」](#控制面-hub)与 `hub/AGENTS.md`。
+- **可独立测试**：`pnpm mock` 假后端跑界面，`pnpm host` 用真实 cordis 加载插件跑全链路，`pnpm smoke` 用真实事件形状做断言；hub 有独立的端到端断言（`hub/test/`）。
 - **多后端切换**：顶栏下拉可切「当前后端 / mock(:3180) / host(:3181) / 自定义」，选择与 token 存 localStorage，切换即重载；跨端口访问靠插件对本机 Origin 的 CORS 支持。
 - **界面看日志**：事件流侧栏可切「日志」视图，3 秒轮询 `GET /logs`（token 保护），内容是插件 debug 日志的环形缓冲（与 panel.log 落盘同源，最多 800 行）。
 - **历史对话**：侧栏可切「历史」视图——从 dsh 会话日志解析用户/Agent 对话序列，下拉选会话即可查看（日志按工作区分目录存放：`$DSH_HOME/sessions/<工作区>/<会话>.jsonl`，插件递归扫描）；接口 `GET /history/sessions`、`GET /history?session=<id>`（token 保护）。
@@ -27,6 +28,13 @@ pnpm build      # node 侧 tsc → dist/*.js；Vite → dist/static/
 | 真实 dsh  | `pnpm dsh:push`（开发）/ `pnpm dsh:add`（装快照） | 完整链路（真实 agent、真实模型）；`dsh:push` = build 后 desktop HMR 自动重载实时链接的 dist | 3180 | `dist/` 作为 bundle |
 
 `pnpm dev` 是前端热更新服（Vite，5173），只在你改界面时用，默认把接口代理到 `pnpm mock`。
+
+想看 hub 编排（MCP master + 多适配器）时另起一节：
+
+```bash
+pnpm -C hub install && pnpm -C hub build && pnpm -C hub start
+# 面板 http://127.0.0.1:3182/（token 见启动 stderr），MCP stdio 供 LLM master 挂载
+```
 
 ### 只看界面
 
@@ -89,7 +97,7 @@ VITE_PANEL_TARGET=http://127.0.0.1:3180 VITE_PANEL_TOKEN=<插件 token> pnpm dev
                代理到 mock(:3180) / host(:3181) / 真实 dsh 插件，由 VITE_PANEL_TARGET 决定
 ```
 
-一句话：**build 产 dist；mock 和 host 是两个不同的"后端"（一个假的、一个半真）；dev 是绕过 dist 的前端开发服**。真实 dsh 是第三个后端——加载同一个 `dist/dsh-panel-bridge.js`，只是宿主换成了 dsh 本体。
+一句话：**build 产 dist；mock 和 host 是两个不同的"后端"（一个假的、一个半真）；dev 是绕过 dist 的前端开发服**。真实 dsh 是第三个后端——加载同一个 `dist/dsh-panel-bridge.js`，只是宿主换成了 dsh 本体。hub 是第四个面板入口（:3182）——它自己不产事件，而是经适配器接入上面三个后端（mock 适配器 / dsh 插件 / dsh-headless），把事件合流给面板、把 master 的 MCP 调用翻译成作业派发。
 
 ### 数据流
 
@@ -268,9 +276,39 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 ### 当前限制
 
 - 确定性 pipeline（顺序固定），同一时间只跑一条流水线：并发向 master 派发返回 400「已有流水线正在执行」。
-- LLM 驱动的 master（主 agent 自己决定下一步派给谁、可打回重做）需要真实 dsh 环境验证消息与结构化输出格式后接入，是下一步计划。
+- LLM 驱动的 master（主 agent 自己决定下一步派给谁、可打回重做）由控制面 hub 承担，见下一节。
 
 中断、工具限制等语义细节见「已知局限」。
+
+## 控制面 hub（MCP 编排多 harness）
+
+`hub/` 是独立子工程（`hub/AGENTS.md` 有完整的结构、环境变量与测试说明）：一个 MCP stdio 服务器，同时伺服面板 HTTP（:3182）。LLM master 把 hub 的 MCP 工具挂进自己的会话，即可编排任意 harness 的子 agent——面板变成观测面，master 不需要碰面板协议。
+
+**MCP 工具**（7 个 + 资源 + prompt 模板）：
+
+| 工具 | 说明 |
+| ---- | ---- |
+| `team_list` | 列出当前角色与能力分级 |
+| `task_dispatch` | 派发异步作业，返回 jobId（`clientRequestId` 去重；`worktree: true` 在仓库分支 worktree 里隔离执行） |
+| `task_status` / `task_wait` | 查询状态 / 阻塞等待（≤120s） |
+| `task_result` | 取产出（summary 截断，完整日志走 `panel://jobs/{id}/log` 资源） |
+| `task_steer` / `task_cancel` | 中途改向 / 取消（L1 角色 steer 返回 UNSUPPORTED，只能重新 dispatch） |
+
+- **fromJobs 交接**：派发时声明上游 jobId，hub 自动把上游产出注入 instruction（带不可信输入边界标记），LLM 不搬运文本。
+- **prompt 模板** `orchestrate-feature`：功能需求 → 拆解并行派发 → worktree 隔离 → 评审 → 测试 → 汇总分支清单。
+- **作业持久化**：node:sqlite 写穿（默认 `~/.synapse-agent-panel/hub-jobs.db`），重启恢复历史作业与日志；`HUB_JOB_TIMEOUT_SEC` 超时自动 cancel。
+
+**dsh 三种接入模式**（面板或 `GET/POST /mode` 运行中切换，有在途作业时拒绝）：
+
+| 模式 | 接入方式 | steer |
+| ---- | -------- | ----- |
+| `mock` | 内置模拟角色（mock-dsh / mock-codex 为 L2，mock-claude 为 L1） | L2 可 |
+| `plugin` | 转 desktop 插件 HTTP（`DSH_PANEL_URL` + `DSH_PANEL_TOKEN`，角色从插件 /meta 自动发现） | 可 |
+| `headless` | spawn `dsh --profile headless --json`（本机或 `ssh` 远机，`DSH_HEADLESS_CMD`），无 desktop 参与，L1 | 不可 |
+
+headless 模式下 hub 自管 role→session 映射（`HUB_HEADLESS_STATE`）实现会话连续、自服务 `/history` `/role-session` `/presets`（预设与 desktop 插件共用 `presets.json`，角色统一从激活预设维护）。
+
+**测试**：`node hub/test/mcp-e2e.mjs`（MCP 全链路 16 项）、`hub/test/dsh-e2e.mjs`（插件适配器 12 项）、`hub/test/headless-e2e.mjs`（headless 33 项）、`hub/test/headless-real.mjs`（真机验收，需 headless 凭据）。
 
 ## 面板功能
 
@@ -305,6 +343,18 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 │       ├── util.ts           # 配色、名称、时间工具
 │       ├── styles/           # 全局样式（Sass，亮/暗双色）
 │       └── components/       # AgentCard / EventLog / CommandBar / PresetEditor
+├── hub/                      # MCP 控制面子工程（pnpm -C hub 独立 install/build/start）
+│   ├── AGENTS.md             # 子工程文档：结构 / 环境变量 / 接入模式 / 测试
+│   ├── src/
+│   │   ├── index.ts          # 入口：面板 HTTP(:3182) + MCP stdio（--panel-only 跳过 MCP）
+│   │   ├── jobs.ts           # 作业状态机 queued→running→completed/failed/cancelled/blocked
+│   │   ├── orchestrate.ts    # dispatch（去重 / fromJobs 注入 / 排队调度）、steer、cancel
+│   │   ├── mcp/server.ts     # 7 个 MCP 工具 + panel://jobs/{id}/log 资源 + orchestrate-feature prompt
+│   │   ├── adapters/         # mock.ts / dsh.ts（转插件 HTTP）/ dsh-headless.ts（spawn dsh CLI）
+│   │   ├── http.ts           # 面板 HTTP + /mode 模式切换 + headless 本地 API
+│   │   ├── presets.ts        # 预设管理（与插件共用 presets.json，角色从激活预设解析）
+│   │   └── mode.ts / bus.ts / registry.ts / dsh-logs.ts / types.ts
+│   └── test/                 # mcp-e2e / dsh-e2e / headless-e2e / headless-real / integ-drive
 ├── scripts/                  # 构建与测试辅助
 │   ├── clean.mjs             # 清空 dist/
 │   ├── after-build.mjs       # 构建后组装 bundle（清单/patch/locale/icon → dist）
@@ -336,10 +386,12 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 | `pnpm typecheck`    | tsc（node 侧）+ vue-tsc（SFC）                                          |
 | `pnpm lint`         | ESLint（typescript-eslint + eslint-plugin-vue）                         |
 | `pnpm format`       | Prettier 统一格式                                                       |
-| `pnpm smoke`        | 构建 + 冒烟测试（14 项断言：事件形状、SSE、命令、预设、日志落盘）       |
+| `pnpm smoke`        | 构建 + 冒烟测试（真实事件形状驱动插件：事件形状、SSE、命令、预设、日志落盘） |
 | `pnpm dsh:add`      | 一键部署到 dsh profile（build + tgz + `dsh plugin add`）                |
 | `pnpm dsh:add:link` | 一键部署（link 模式）：安装 `dist/` 目录实时链接，改完 build 重启即生效 |
 | `pnpm pack:plugin`  | 在 `dist/` 里打 tgz 包                                                  |
+| `pnpm -C hub build` | 编译 hub 子工程（`pnpm -C hub install` 装依赖）                         |
+| `pnpm -C hub start` | 启动 hub（面板 :3182 + MCP stdio；`--panel-only` 只伺服面板）           |
 
 ### 热重载
 
@@ -379,9 +431,9 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 
 面板与 harness 解耦：事件与指令走统一格式（`src/panel-event.ts` 的 `PanelEvent`/`PanelCommand`），每条事件带 `agent.harness` 标记，卡片右上角徽章显示来源。切换 harness = 切换后端适配器：
 
-- **dsh**：已实现（`src/dsh-panel-bridge.ts`），以插件形态运行在 cordis 宿主。
-- **codex / claude-code**：待实现。实现 `panel-event.ts` 的 `Adapter` 接口——`start(emit)` 订阅 CLI 事件并翻译成 `PanelEvent`，`dispatch(cmd)` 把指令翻译回 CLI 调用——外面套同一个 HTTP 壳（SSE + `/command` + `/meta`）。
+- **dsh**：已实现，两条路——desktop 插件（`src/dsh-panel-bridge.ts`，cordis 宿主内）与 headless 无桌面接入（`hub/src/adapters/dsh-headless.ts`，spawn `dsh --profile headless --json`）。
+- **codex / claude-code**：待实现。在 hub 里新增一个适配器（照 `hub/src/adapters/` 现有三份实现 `PanelEvent` 翻译 + dispatch），同名 mock 角色即被就地升级；master 侧无需改动。
 
-两种切换方式：**部署期**——同一时刻跑一个适配器，面板用 `VITE_PANEL_TARGET`/`panelHtml` 指向对应端口；**运行时并存**——多个适配器接入一个聚合服务（hub），`/events` 合流、`/command` 按 `agent.harness` 路由，面板无需改动。
+两种切换方式：**部署期**——同一时刻跑一个适配器，面板用 `VITE_PANEL_TARGET`/`panelHtml` 指向对应端口；**运行时并存**——多个适配器接入控制面 hub（已实现），`/events` 合流、`/command` 按 `agent.harness` 路由，面板无需改动。
 
 写新适配器的四个映射点：CLI 生命周期事件 → `turn.started/step.started/turn.ended`；工具调用 → `tool.started/finished`；输出流 → `output`（建议 150ms 合并）；消息归属 → message→taskId 映射出 `task.claimed`。审批类事件映射到预留的 `approval.requested`。

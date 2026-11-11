@@ -8,6 +8,8 @@
 | `web/` | **面板前端**：Vue 3 + Vite + Sass，纯静态产物，任何后端都能伺服 | `pnpm dev`（5173）/ 由后端伺服 |
 | `hub/` | **MCP 控制面 hub**：LLM master 经 MCP 工具编排多 harness，自带面板 HTTP | `pnpm -C hub build && pnpm -C hub start`（3182） |
 
+hub 子工程的结构、环境变量、dsh 三种接入模式与测试见 `hub/AGENTS.md`（根仓库文档只列跨工程约定）。
+
 辅助进程：`src/mock-server.mjs`（`pnpm mock`，纯假面板后端）、`scripts/mock-host.mjs`（`pnpm host`，真实 cordis 宿主桩）。
 
 ## 常用命令
@@ -18,12 +20,13 @@ pnpm build            # 编译插件（tsc）+ 面板（vite）→ dist/
 pnpm typecheck        # 根 tsc + vue-tsc -p web
 pnpm lint             # ESLint 9（typescript-eslint + vue）
 pnpm format           # Prettier（semi:false, singleQuote, 100 列）
-pnpm smoke            # 13 项端到端断言（真实事件形状）
+pnpm smoke            # 端到端断言（真实事件形状驱动插件）
 pnpm mock / host      # 面板演示 / 插件宿主桩（均带 --watch）
 pnpm dsh:add          # 插件装进 dsh profile（tgz 快照）
 pnpm dsh:add:link     # 同上，但装 dist 目录实时链接（开发推荐）
 pnpm dsh:push         # 开发迭代：build 后 desktop HMR 自动重载（依赖 dsh:add:link 的实时链接）
-pnpm -C hub build && pnpm -C hub start   # 启动 hub（面板 :3182 + MCP stdio）
+pnpm -C hub build && pnpm -C hub start   # 启动 hub（面板 :3182 + MCP stdio；--panel-only 跳过 MCP）
+node hub/test/mcp-e2e.mjs                # hub 端到端：另有 dsh-e2e / headless-e2e / headless-real（真机）/ integ-drive（手动集成）
 ```
 
 ## 关键约定（违反会出真 bug，见「踩坑」）
@@ -33,21 +36,23 @@ pnpm -C hub build && pnpm -C hub start   # 启动 hub（面板 :3182 + MCP stdio
 3. **MCP stdio 的 stdout 是协议**：hub 里所有日志必须走 stderr（`bus.ts` 的 `hubLog`）或写文件，禁止 console.log。
 4. **dsh bundle patch 按行整行替换**：改 profile 的 `cordis.patch.yml` 时要重述整行，不做深合并。
 5. **跨 harness 兼容**：`src/panel-event.ts` 的 `PanelEvent`/`PanelCommand` 是面板与所有适配器的唯一协议，新增事件类型先改这里。
+6. **hub 作业语义**：适配器按能力分级——L1（dsh-headless、mock-claude）不支持 steer，`task_steer` 返回 UNSUPPORTED、要改产出只能重新 dispatch；`turn.ended` 的 status/reasonKind 映射到作业状态机（completed/failed/cancelled/blocked），映射改动先看 `hub/src/orchestrate.ts` 与适配器。
+7. **fromJobs 注入的是不可信输入**：hub 自动把上游作业产出注入下一个作业的 instruction，产出会被不可信输入边界标记包裹——适配器/编排侧改这段逻辑时不要拆掉边界。
 
 ## 目录速查
 
 ```
 src/           插件源码（dsh-panel-bridge.ts / game-presets.ts / panel-event.ts / mock-server.mjs）
 web/src/       面板源码（App.vue + components/ + store.ts + conn.ts + styles/panel.scss）
-hub/src/       hub（mcp/server.ts / orchestrate.ts / jobs.ts / registry.ts / adapters/mock.ts / adapters/dsh.ts / adapters/dsh-headless.ts / http.ts / bus.ts）
+hub/           MCP 控制面子工程（src/ 见 hub/AGENTS.md，test/ 为各适配器端到端断言）
 scripts/       构建与部署辅助（clean / after-build / dsh-add / mock-host / smoke / dist-package / cordis.patch / locale / icon）
-docs/          设计文档（MCP 控制面 hub 设计方案.md）
+docs/          设计文档与执行计划（MCP 控制面 hub 设计方案.md / plan.md）
 dist/          编译产物（gitignore，pnpm build 生成）
 ```
 
 ## 数据与状态文件（都在 `~/.synapse-agent-panel/`，与 git 无关）
 
-- `presets.json` 预设与激活状态 · `panel-state.json` role→session 映射 · `panel.log` 插件日志 · `mock-registry.json` mock 注册表
+- `presets.json` 预设与激活状态（插件与 hub 共用同一份）· `panel-state.json` role→session 映射 · `panel.log` 插件日志 · `mock-registry.json` mock 注册表 · `hub-jobs.db` hub 作业 SQLite（重启恢复历史）· `hub-mode.json` hub 的 dsh 接入模式持久化 · headless 角色会话映射见 `HUB_HEADLESS_STATE`
 
 ## 注释与文档引用规范
 
