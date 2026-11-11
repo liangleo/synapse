@@ -7,6 +7,8 @@
 //   message.id 由 createUserMessage/createMessage 自动分配（UUID）；agent/inbox/claimed 事件为 {message, turn}，
 //   p.message.id 与创建时的 msg.id 一致，taskOfMessage 关联成立。
 //   面板转发指令的 source: { kind: 'user' } 是用户消息的合法来源标记（真机会话里系统注入用 runtime-context 等）。
+//   同一 session 不允许两个活跃 agent：JSONL 持久层单写者锁，第二次 resume 报 SessionAlreadyOwnedError——
+//   真机实验实证（2026-11-11）；ensure() 恢复失败回退新建会话，后绑的角色拿新会话，不会崩。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import {
