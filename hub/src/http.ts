@@ -123,7 +123,7 @@ export function startHttp(port: number, token: string, panelDist?: string): void
     if (u.pathname === '/meta' && req.method === 'GET') {
       // 角色会话绑定随派发动态变化，实时从 dsh 插件查询合并（插件不可达时不阻塞基础 meta）
       void (async () => {
-        let roleSessions: Record<string, string> = {}
+        let roleSessions: Record<string, { id: string; harness: string }> = {}
         if (isSelfServeMode()) {
           // 自管模式：角色会话映射由 hub 维护（按 harness 分域存储，展示按角色名合并）
           roleSessions = listRoleSessions()
@@ -132,7 +132,11 @@ export function startHttp(port: number, token: string, panelDist?: string): void
           if (base) {
             try {
               const r = await fetch(`${base}/meta`, { headers: { 'x-panel-token': process.env.DSH_PANEL_TOKEN ?? '' } })
-              if (r.ok) roleSessions = ((await r.json()) as { roleSessions?: Record<string, string> }).roleSessions ?? {}
+              if (r.ok) {
+                // 插件模式的会话一定是 dsh harness：归一成 {id, harness} 与自管模式同形（面板统一渲染）
+                const raw = ((await r.json()) as { roleSessions?: Record<string, string> }).roleSessions ?? {}
+                roleSessions = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { id: v, harness: 'dsh' }]))
+              }
             } catch {
               /* 插件不可达，绑定为空 */
             }
