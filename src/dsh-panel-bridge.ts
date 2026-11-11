@@ -1,5 +1,12 @@
 // dsh 插件：把 session/agent 事件转换为通用面板事件（SSE），并把面板指令转换为 Agent API 调用。
 // 运行期 API 已对照 dsh 0.2.2-rc.1 真机实现核对（session/event、agent/* 单 payload、agents.create/setup、tools.restrict）。
+// 核对结论（读 asar 源码 + 真机 JSONL 实证，2026-11-11）：
+//   agents 服务 = AgentRegistry：resume(options) 单参数（ownerCtx 内部绑定）；list()/roots() 返回 Agent 实例
+//   本身（followup/steer/cancel 直接挂实例，cancel(cause, {keepInbox?})）；resume/create 返回 {agent, dispose} 包装，
+//   方法在 handle.agent 上——两处位置插件均已兼容（callOn 先试实例再试 .agent）。
+//   message.id 由 createUserMessage/createMessage 自动分配（UUID）；agent/inbox/claimed 事件为 {message, turn}，
+//   p.message.id 与创建时的 msg.id 一致，taskOfMessage 关联成立。
+//   面板转发指令的 source: { kind: 'user' } 是用户消息的合法来源标记（真机会话里系统注入用 runtime-context 等）。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import {
