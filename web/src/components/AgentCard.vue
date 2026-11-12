@@ -4,7 +4,7 @@ import { sendCommand } from '../conn'
 import { STATUS_LABEL, displayName, store, type AgentView } from '../store'
 import { col, nm } from '../util'
 
-const props = defineProps<{ agent: AgentView }>()
+const props = defineProps<{ agent: AgentView; step?: number }>()
 
 const cls = computed(() => [
   'card',
@@ -60,6 +60,7 @@ function toggleSel(): void {
         </svg>
       </span>
       <b :title="agent.role">{{ displayName(agent.role) || nm(agent) }}</b>
+      <span v-if="step" class="hb" title="流水线步骤">#{{ step }}</span>
       <span class="hb">{{ agent.h ?? '' }}</span>
       <span class="pill" :data-s="agent.s">{{ STATUS_LABEL[agent.s] }}</span>
     </div>

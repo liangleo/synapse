@@ -89,6 +89,9 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
     targets = activePresetRoles()
     if (!targets.length) targets = parseHeadlessRoles(process.env.CODEX_HEADLESS_ROLES ?? '')
     if (!targets.length) throw new Error('codex 模式需要角色：在预设编辑里维护角色并激活预设（或设 CODEX_HEADLESS_ROLES）')
+  } else if (opts.mode === 'mock') {
+    // 模拟模式同样从激活预设取角色（保留各角色默认 mock 形态），便于无真实 agent 时预演流水线
+    targets = activePresetRoles()
   } else if (opts.mode === 'plugin') {
     const base = process.env.DSH_PANEL_URL
     if (!base) throw new Error('未配置 DSH_PANEL_URL，无法接入 desktop 插件')
@@ -119,6 +122,13 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
   else if (opts.mode === 'plugin') {
     registerDshRoles(targets)
     startDshEvents()
+  } else {
+    // mock：预设角色保留其默认 mock 形态（无默认定义的用 mock-dsh L2 兜底）
+    for (const t of targets) {
+      const def = defaultRoleOf(t.name)
+      const role: RoleDef = { name: t.name, harness: def?.harness ?? 'mock-dsh', level: def?.level ?? 'L2', label: t.label }
+      upsertRole(role, createMockAdapter(role))
+    }
   }
   saveMode(opts.mode)
   hubLog('INFO', `dsh 接入模式 → ${opts.mode}（角色 ${targets.map((t) => t.name).join(' / ') || '无'}）`)

@@ -14,13 +14,18 @@ const title = computed(() => {
   return sel ? `${base} · ${displayName(sel.role) || sel.id.slice(0, 12)}` : base
 })
 
+const emit = defineEmits<{ close: [] }>()
+
 </script>
 
 <template>
-  <aside>
+  <aside class="panel-box">
     <h2>
       <span>{{ title }}</span>
-      <button v-if="store.sel" @click="store.sel = null">显示全部</button>
+      <span class="h2-acts">
+        <button v-if="store.sel" @click="store.sel = null">显示全部</button>
+        <button class="mini" title="关闭" @click="emit('close')">✕</button>
+      </span>
     </h2>
     <div id="ev">
       <div v-for="e in shown" :key="e.key" class="ev">

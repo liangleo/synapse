@@ -229,22 +229,15 @@ button {
   }
 }
 
-// ---------- 主区 ----------
+// ---------- 主区（事件流已改为点卡片弹出的浮层，这里只剩卡片网格） ----------
 main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
-  gap: 12px;
   padding: 12px 16px;
-}
-@media (max-width: 860px) {
-  main {
-    grid-template-columns: 1fr;
-  }
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  // 卡片限宽 240px：窄窗口也能排两列，宽屏不会把单张卡片撑成横条
+  grid-template-columns: repeat(auto-fill, minmax(200px, 240px));
   gap: 12px;
 }
 
@@ -405,16 +398,36 @@ main {
 }
 
 // ---------- 底部面板行：日志 + 历史对话 ----------
-.panels {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding: 0 16px 12px;
+// 会话管理：居中浮层（窄窗口也不贴满四边），高度随内容、上限视口内
+.panel-box.drawer {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(760px, calc(100vw - 48px));
+  height: fit-content;
+  max-height: calc(100vh - 48px);
+  min-height: 0;
+  z-index: 40;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
+  // 原生拖拽调宽高（右下角手柄），窄窗口也不贴边
+  resize: both;
+  overflow: auto;
+  min-width: 320px;
+  min-height: 220px;
 }
-@media (max-width: 860px) {
-  .panels {
-    grid-template-columns: 1fr;
-  }
+
+// 事件日志/服务端日志：吸附右侧的全高面板
+.panel-box.dock {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, calc(100vw - 24px));
+  max-height: none;
+  min-height: 0;
+  z-index: 40;
+  border-radius: 0;
+  box-shadow: -8px 0 24px rgb(0 0 0 / 18%);
 }
 
 .panel-box {
@@ -440,11 +453,17 @@ main {
       padding: 0 8px;
       font-size: 12px;
     }
+
+    .h2-acts {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
   }
 }
 
 // ---------- 事件流侧栏 ----------
-// ---------- 事件流侧栏 ----------
+// ---------- 事件流（浮层形态，根节点带 .panel-box.drawer） ----------
 aside {
   background: var(--card);
   border: 1px solid var(--bd);
@@ -452,7 +471,6 @@ aside {
   display: flex;
   flex-direction: column;
   min-height: 320px;
-  max-height: calc(100vh - 150px);
 
   h2 {
     font-size: 13px;
@@ -467,11 +485,6 @@ aside {
       padding: 0 8px;
       font-size: 12px;
     }
-  }
-}
-@media (max-width: 860px) {
-  aside {
-    max-height: 420px;
   }
 }
 
@@ -534,34 +547,45 @@ aside {
 .hist-body {
   overflow: auto;
   flex: 1;
-  padding: 6px 12px;
+  padding: 8px 14px 12px;
+}
+
+// 「历史对话」小节标题：面板盒无内边距，贴边显丑，给它与 hist-bar 同样的水平留白
+.hist-title {
+  font-size: 12px;
+  margin: 0;
+  padding: 8px 14px 0;
+  color: var(--mut);
 }
 
 .hist-item {
-  padding: 5px 0;
+  padding: 8px 0;
   border-bottom: 1px dashed var(--bd);
   font-size: 12px;
 
-  &.hist-user .hist-text {
-    color: var(--tx);
-    font-weight: 600;
+  .hist-kind {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 12px;
+    color: var(--mut);
   }
-  &.hist-assistant .hist-text {
-    color: var(--tx);
+
+  &.hist-user .hist-kind {
+    color: $pri;
   }
+
+  &.hist-error .hist-text {
+    color: #e5694a;
+  }
+
   &.hist-turn {
     color: var(--mut);
     text-align: center;
     border-bottom: 0;
   }
-  &.hist-error .hist-text {
-    color: #e5694a;
-  }
 }
 
 .hist-kind {
-  display: inline-block;
-  margin-right: 6px;
   font-size: 12px;
   color: var(--mut);
 }
@@ -617,6 +641,68 @@ aside {
   white-space: pre-wrap;
 }
 
+// 会话内容的 Markdown 渲染样式（marked + DOMPurify 输出）
+.hist-md {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+
+  p {
+    margin: 0 0 6px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 8px 0 4px;
+    font-size: 13px;
+  }
+  ul,
+  ol {
+    margin: 4px 0;
+    padding-left: 20px;
+  }
+  li {
+    margin: 2px 0;
+  }
+  code {
+    background: var(--in);
+    border-radius: 4px;
+    padding: 0 4px;
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  pre {
+    background: var(--in);
+    border: 1px solid var(--bd);
+    border-radius: $radius-sm;
+    padding: 8px 10px;
+    overflow: auto;
+
+    code {
+      background: none;
+      padding: 0;
+      line-height: 1.5;
+    }
+  }
+  blockquote {
+    margin: 4px 0;
+    padding: 2px 10px;
+    border-left: 3px solid var(--bd);
+    color: var(--mut);
+  }
+  a {
+    color: $pri;
+  }
+  hr {
+    border: 0;
+    border-top: 1px dashed var(--bd);
+    margin: 8px 0;
+  }
+}
+
 .logview {
   overflow: auto;
   flex: 1;
@@ -643,22 +729,41 @@ aside {
 .ed-toggle {
   font-size: 12px;
   padding: 3px 10px;
+
+  &.on {
+    background: $pri;
+    border-color: $pri;
+    color: #fff;
+  }
 }
 h1 .ed-toggle {
   margin-left: auto; // 只有第一个控件推开到右侧
 }
 
 .editor {
-  margin: 0 16px 12px;
+  // 弹窗形态：居中浮层，内容超高内部滚动
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(920px, calc(100vw - 48px));
+  height: fit-content;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  z-index: 40;
   background: var(--card);
   border: 1px solid var(--bd);
   border-radius: $radius;
   padding: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
 }
 
 .ed-bar {
   display: flex;
   flex-wrap: wrap;
+
+  .ed-close {
+    margin-left: auto; // 关闭按钮贴工具条最右
+  }
   gap: 8px;
   align-items: center;
   margin-bottom: 10px;

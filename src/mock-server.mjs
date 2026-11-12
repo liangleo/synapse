@@ -16,6 +16,8 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json; charset=utf-8',
 }
 
 // 只允许读取对应目录内的文件，拒绝 .. 穿越与未知路径
@@ -228,10 +230,11 @@ createServer(async (req, res) => {
   if (hit) {
     try {
       const body = readFileSync(hit.file).toString('utf8').replaceAll('__PANEL_TOKEN__', TOKEN) // 对不含占位符的 css/js 无副作用
+      // 扩展名从文件路径取：用 URL 路径会在访问 / 时取不到扩展名（落到 octet-stream，浏览器弹下载）
       return res
         .writeHead(200, {
           'content-type':
-            MIME[u.pathname.slice(u.pathname.lastIndexOf('.'))] ?? 'application/octet-stream',
+            MIME[hit.file.slice(hit.file.lastIndexOf('.'))] ?? 'application/octet-stream',
         })
         .end(body)
     } catch {

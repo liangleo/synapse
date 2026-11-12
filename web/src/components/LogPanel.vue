@@ -2,6 +2,7 @@
 import { onUnmounted, ref } from 'vue'
 import { api } from '../conn'
 
+const emit = defineEmits<{ close: [] }>()
 const lines = ref<string[]>([])
 let pollTimer: ReturnType<typeof setInterval> | undefined
 
@@ -24,7 +25,10 @@ onUnmounted(() => clearInterval(pollTimer))
 
 <template>
   <section class="panel-box">
-    <h2>服务端日志（panel.log）</h2>
+    <h2>
+      <span>服务端日志（panel.log）</span>
+      <span class="h2-acts"><button class="mini" title="关闭" @click="emit('close')">✕</button></span>
+    </h2>
     <pre ref="body" class="logview">{{ lines.join('\n') || '（暂无日志）' }}</pre>
   </section>
 </template>

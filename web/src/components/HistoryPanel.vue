@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { api } from '../conn'
 import { displayName, normalizeRoleSessions } from '../store'
 
@@ -14,6 +16,11 @@ interface HistItem {
   turn?: number
   text: string
 }
+
+const emit = defineEmits<{ close: [] }>()
+
+// 会话内容不可信：marked 渲染后必须过 DOMPurify 净化再 v-html
+const md = (src: string): string => DOMPurify.sanitize(marked.parse(src, { async: false }) as string)
 
 const sessions = ref<HistSession[]>([])
 // harness 筛选：默认跟随当前接入模式（headless/plugin/mock → dsh），可手动改；'@bound' = 只看角色绑定的会话
@@ -138,7 +145,10 @@ onMounted(() => {
   <section class="panel-box">
     <h2>
       会话管理
-      <button class="mini" @click="refreshAll">刷新</button>
+      <span class="h2-acts">
+        <button class="mini" @click="refreshAll">刷新</button>
+        <button class="mini" title="关闭" @click="emit('close')">✕</button>
+      </span>
     </h2>
 
     <div class="hist-bindings">
@@ -153,7 +163,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <h3>历史对话</h3>
+    <h3 class="hist-title">历史对话</h3>
     <div class="hist-bar">
       <select v-model="filter" title="历史会话来源筛选，默认跟随当前接入模式" @change="onFilter">
         <option value="">全部来源</option>
@@ -174,7 +184,8 @@ onMounted(() => {
         <template v-if="it.kind === 'turn'">— 第 {{ it.turn }} 轮 —</template>
         <template v-else>
           <span class="hist-kind">{{ it.kind === 'user' ? '你' : it.kind === 'error' ? '错误' : 'Agent' }}</span>
-          <span class="hist-text">{{ it.text || '（空）' }}</span>
+          <span v-if="it.kind === 'error'" class="hist-text">{{ it.text || '（空）' }}</span>
+          <div v-else class="hist-md" v-html="md(it.text) || '（空）'" />
         </template>
       </div>
       <div v-if="!loading && items.length === 0" class="empty">选择会话后显示历史对话。</div>

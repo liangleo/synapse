@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import AgentCard from './components/AgentCard.vue'
 import CommandBar from './components/CommandBar.vue'
 import EventLog from './components/EventLog.vue'
@@ -11,6 +11,11 @@ import { api, apiBase, apiToken, BACKENDS, conn, saveConn } from './conn'
 
 let es: EventSource | undefined
 const showEditor = ref(false)
+// 低频操作面统一为右侧弹框（互斥）：会话管理/服务端日志经顶栏按钮开；事件流在选中角色卡片时自动弹出
+const drawer = ref<'' | 'hist' | 'log' | 'ev'>('')
+function toggleDrawer(which: 'hist' | 'log' | 'ev'): void {
+  drawer.value = drawer.value === which ? '' : which
+}
 // dsh 接入模式（hub /mode）：运行中切换会重注册角色，切换成功后整页重载。
 // headless 角色不在这里维护——与 dsh desktop 插件一样从激活预设读取（预设编辑器是角色的唯一维护入口）。
 const mode = ref('mock')
@@ -45,12 +50,29 @@ function switchBackend(value: string): void {
   location.reload()
 }
 
-// 卡片排序：进行中（thinking/working）在前，已结束（done/idle/failed）下沉且弱化
+// 卡片排序：流水线角色按预设顺序在前（体现工作流），其余按进行中优先、时间次序
 const RANK: Record<string, number> = { thinking: 0, working: 0, idle: 1, done: 2, failed: 2 }
+const pipeIdx = (role?: string): number => {
+  const i = role ? store.meta.pipeline.indexOf(role) : -1
+  return i === -1 ? 99 : i
+}
 const agentList = computed(() =>
   [...store.agents.values()].sort(
-    (a, b) => (RANK[a.s] ?? 3) - (RANK[b.s] ?? 3) || (a.t ?? 0) - (b.t ?? 0),
+    (a, b) => pipeIdx(a.role) - pipeIdx(b.role) || (RANK[a.s] ?? 3) - (RANK[b.s] ?? 3) || (a.t ?? 0) - (b.t ?? 0),
   ),
+)
+const stepOf = (role?: string): number | undefined => {
+  const i = role ? store.meta.pipeline.indexOf(role) : -1
+  return i === -1 ? undefined : i + 1
+}
+
+// 选中角色 → 自动弹出事件流弹框（已按该角色过滤）；取消选中 → 收起
+watch(
+  () => store.sel,
+  (sel) => {
+    if (sel) drawer.value = 'ev'
+    else if (drawer.value === 'ev') drawer.value = ''
+  },
 )
 
 onMounted(() => {
@@ -108,6 +130,15 @@ onUnmounted(() => es?.close())
       <button class="ed-toggle" @click="showEditor = !showEditor">
         {{ showEditor ? '关闭预设编辑' : '预设编辑' }}
       </button>
+      <button class="ed-toggle" :class="{ on: drawer === 'ev' }" @click="toggleDrawer('ev')">
+        事件日志
+      </button>
+      <button class="ed-toggle" :class="{ on: drawer === 'hist' }" @click="toggleDrawer('hist')">
+        会话管理
+      </button>
+      <button class="ed-toggle" :class="{ on: drawer === 'log' }" @click="toggleDrawer('log')">
+        服务端日志
+      </button>
       <select
         class="ed-toggle"
         :value="mode"
@@ -145,20 +176,18 @@ onUnmounted(() => es?.close())
       </span>
     </p>
   </header>
-  <PresetEditor v-if="showEditor" class="editor-slot" />
+  <PresetEditor v-if="showEditor" class="editor-slot" @close="showEditor = false" />
+  <HistoryPanel v-if="drawer === 'hist'" class="drawer" @close="drawer = ''" />
+  <LogPanel v-if="drawer === 'log'" class="dock" @close="drawer = ''" />
+  <EventLog v-if="drawer === 'ev'" class="dock" @close="drawer = ''" />
   <main>
     <section>
       <div class="grid">
-        <AgentCard v-for="x in agentList" :key="x.id" :agent="x" />
+        <AgentCard v-for="x in agentList" :key="x.id" :agent="x" :step="stepOf(x.role)" />
       </div>
       <p v-if="store.agents.size === 0" class="empty">
         等待事件。在 dsh 里发起一次对话，或向某个角色派发任务。
       </p>
     </section>
-    <EventLog />
   </main>
-  <section class="panels">
-    <LogPanel />
-    <HistoryPanel />
-  </section>
 </template>

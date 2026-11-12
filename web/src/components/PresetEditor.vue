@@ -17,6 +17,7 @@ interface RolePresetShape {
   pipeline: string[]
 }
 
+const emit = defineEmits<{ close: [] }>()
 const loading = ref(false)
 const msg = ref('')
 const presets = ref<Record<string, PresetView>>({})
@@ -181,6 +182,7 @@ onMounted(load)
       <button v-if="canReset" @click="resetToDefault()">恢复默认值</button>
       <button v-if="editingName && !builtin" @click="remove(editingName)">删除</button>
       <span class="ed-msg" :class="{ ok: msg.startsWith('已') }">{{ msg }}</span>
+      <button class="ed-close" title="关闭" @click="emit('close')">✕</button>
     </div>
     <div class="ed-body">
       <div class="ed-roles">

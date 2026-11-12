@@ -95,7 +95,11 @@ export function startHttp(port: number, token: string, panelDist?: string): void
         try {
           const body = readFileSync(file).toString('utf8').replaceAll('__PANEL_TOKEN__', token)
           res
-            .writeHead(200, { 'content-type': MIME[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream' })
+            .writeHead(200, {
+              'content-type': MIME[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream',
+              // HTML 入口必须每次回源校验，否则发版后浏览器拿旧壳加载旧资源哈希
+              'cache-control': file.endsWith('.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+            })
             .end(body)
         } catch {
           res.writeHead(404).end()
@@ -145,8 +149,8 @@ export function startHttp(port: number, token: string, panelDist?: string): void
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(
           JSON.stringify({
             preset: 'hub',
-            // headless 模式展示激活预设的流水线（角色与预设同源）；其它模式不编排流水线
-            pipeline: isSelfServeMode() ? activePipeline() : [],
+            // 流水线来自激活预设（与 dsh desktop 插件共用同一份），所有模式都展示
+            pipeline: activePipeline(),
             roles: roles.map((r) => ({ name: r.name, label: r.label })),
             roleSessions,
           }),
@@ -170,8 +174,9 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       u.pathname === '/preset/active'
     if (isPluginApi && authed) {
       void (async () => {
-      // headless 模式：历史/会话绑定/预设都由 hub 自服务（预设文件与 desktop 插件共用同一份）
-      if (isSelfServeMode()) {
+      // 自管模式与 mock：预设/历史/会话绑定由 hub 自服务（预设文件与 desktop 插件共用同一份；
+      // mock 也读预设——模拟角色从激活预设注册，编辑器里能看到 server/client 内置预设）
+      if (isSelfServeMode() || currentMode() === 'mock') {
         if (req.method === 'GET' && u.pathname === '/history/sessions') {
           return res
             .writeHead(200, { 'content-type': 'application/json; charset=utf-8' })

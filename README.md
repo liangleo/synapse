@@ -8,8 +8,8 @@
 - **控制面 hub（`hub/`）**：MCP stdio 服务器 + 面板 HTTP（:3182）。LLM master 通过 `task_dispatch` / `task_wait` / `task_result` 等工具派发与跟踪异步作业；适配器接入 mock / dsh desktop 插件/ dsh-headless（无桌面，`dsh --profile headless --json`）/ claude（无头，`claude -p --output-format stream-json`）/ codex（无头，`codex exec --json`），运行中可切换接入模式；支持 worktree 隔离、SQLite 作业持久化、单作业超时。详见下文[「控制面 hub」](#控制面-hub)与 `hub/AGENTS.md`。
 - **可独立测试**：`pnpm mock` 假后端跑界面，`pnpm host` 用真实 cordis 加载插件跑全链路，`pnpm smoke` 用真实事件形状做断言；hub 有独立的端到端断言（`hub/test/`）。
 - **多后端切换**：顶栏下拉可切「当前后端 / mock(:3180) / host(:3181) / 自定义」，选择与 token 存 localStorage，切换即重载；跨端口访问靠插件对本机 Origin 的 CORS 支持。
-- **界面看日志**：事件流侧栏可切「日志」视图，3 秒轮询 `GET /logs`（token 保护），内容是插件 debug 日志的环形缓冲（与 panel.log 落盘同源，最多 800 行）。
-- **历史对话**：侧栏可切「历史」视图——从会话日志解析用户/Agent 对话序列，下拉选会话即可查看。hub 自管模式下覆盖三个 harness 的会话目录：dsh（`$DSH_HOME/sessions`，zstd 多帧）/ claude（`~/.claude/projects`）/ codex（`~/.codex/sessions`）；带来源筛选（默认跟随当前接入模式，可手改），支持按角色绑定 session.id 精确过滤（「已绑定」档位 + ★角色标注）。接口 `GET /history/sessions`、`GET /history?session=<id>`（token 保护）。
+- **界面看日志**：顶栏「服务端日志」按钮唤出右侧抽屉（默认隐藏），3 秒轮询 `GET /logs`（token 保护），内容是插件 debug 日志的环形缓冲（与 panel.log 落盘同源，最多 800 行）。
+- **历史对话**：顶栏「会话管理」按钮唤出右侧抽屉——从会话日志解析用户/Agent 对话序列，下拉选会话即可查看。hub 自管模式下覆盖三个 harness 的会话目录：dsh（`$DSH_HOME/sessions`，zstd 多帧）/ claude（`~/.claude/projects`）/ codex（`~/.codex/sessions`）；带来源筛选（默认跟随当前接入模式，可手改），支持按角色绑定 session.id 精确过滤（「已绑定」档位 + ★角色标注）。接口 `GET /history/sessions`、`GET /history?session=<id>`（token 保护）。
 - **会话持久化与恢复**：流水线角色的 `role → session` 映射持久化到 `panel-state.json`（`stateFile` 可改路径）。dsh/插件重启后第一次派发某个角色时走 `agents.resume` 恢复原会话上下文（失败自动回退新建并清理映射）；面板角色的历史日志在 `~/.dsh/sessions/` 的 JSONL 里，不会丢。想把角色绑定到任意已有 dsh 会话（如主对话 `session-xxxx`）：手动编辑 `panel-state.json` 的 `sessions` 映射指向该 id，重启插件后即 resume 生效；也可在界面用「会话 xxx」下拉直发到已有会话。
 
 ## 30 秒上手

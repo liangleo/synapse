@@ -276,6 +276,9 @@ const swMock = await api('/mode', { method: 'POST', headers: { 'content-type': '
 check('cancel 后可切 mock', swMock.status === 200, String(swMock.status))
 const team3 = await callTool('team_list', {})
 check('mock 模式下无 dsh 角色', !(team3.structuredContent?.team ?? []).some((r) => r.harness === 'dsh'), JSON.stringify(team3.structuredContent?.team))
+check('mock 模式注册预设角色（保留 mock 形态）', (team3.structuredContent?.team ?? []).some((r) => r.role === 'dev-c' && String(r.harness).startsWith('mock')), JSON.stringify(team3.structuredContent?.team))
+const prs = await (await api('/presets')).json()
+check('mock 模式 /presets 由 hub 自服务（内置预设合并）', prs.presets && Object.keys(prs.presets).length >= 2, JSON.stringify(Object.keys(prs?.presets ?? {})))
 
 // 9. SQLite 持久化：作业写穿 DB，重启后 hub2 恢复历史 + 运行中作业标记 failed
 //    （先切回 headless 派发一个 sleep 作业，直接杀 hub，不 cancel）
