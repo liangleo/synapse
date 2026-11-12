@@ -193,21 +193,30 @@ function send(type, agent, pl = {}) {
 
 const timers = new Map() // agentId → 回放定时器，cancel 时清掉
 
-function run(role, task, actions) {
+// 演示输出的步骤与结果格式，与 hub mock 适配器一致；提示词取激活预设里该角色的配置
+const STEPS = ['阅读任务与相关上下文', '规划改动范围', '执行修改', '自检并整理输出']
+
+function run(role, task, prompt) {
   const a = sub(role)
-  let i = 0
+  const cfg = presetNow(activeName)?.roles?.[role] ?? {}
+  const label = cfg.label || role
   send('agent.registered', a)
   if (task) send('task.claimed', a, { taskId: task })
   send('turn.started', a, { turn: 1 })
   const prev = timers.get(a.id)
   if (prev) clearInterval(prev)
+  let i = 0
   const t = setInterval(() => {
-    if (i < actions.length) {
-      send('tool.started', a, { name: 'edit', action: actions[i++] })
-      send('output', a, { text: '处理中… ' })
+    if (i < STEPS.length) {
+      const step = `${i + 1}. ${STEPS[i]}`
+      send('tool.started', a, { name: 'mock', action: step })
+      send('output', a, { text: `${step}\n` })
+      i++
     } else {
       clearInterval(t)
       timers.delete(a.id)
+      const result = `【${label} · mock-dsh】任务完成。\n提示词：${prompt || '（未配置）'}\n需求：${task}\n步骤：\n- ${STEPS.map((s, n) => `${n + 1}. ${s}`).join('\n- ')}`
+      send('output', a, { text: result })
       send('turn.ended', a, { turn: 1, reason: 'completed', status: 'ok', taskId: task })
     }
   }, 900)
@@ -215,10 +224,11 @@ function run(role, task, actions) {
 }
 
 send('agent.registered', M)
-// 演示回放使用激活预设的前两个角色，与面板看到的预设保持一致
+// 演示回放使用激活预设的前两个角色，提示词与真实角色配置同源
 const demoRoles = presetNow(activeName)?.pipeline.slice(0, 2) ?? ['architect', 'developer-a']
-setTimeout(() => run(demoRoles[0], 't-1', ['读取需求', '输出 tasks.md']), 800)
-setTimeout(() => run(demoRoles[1], 't-2', ['创建 src/auth/login.ts', '补充 login.test.ts']), 4500)
+const promptOf = (role) => presetNow(activeName)?.roles?.[role]?.prompt
+setTimeout(() => run(demoRoles[0], 't-1', promptOf(demoRoles[0])), 800)
+setTimeout(() => run(demoRoles[1], 't-2', promptOf(demoRoles[1])), 4500)
 
 createServer(async (req, res) => {
   res.setHeader('access-control-allow-origin', '*')

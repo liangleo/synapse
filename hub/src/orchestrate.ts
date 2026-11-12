@@ -74,7 +74,7 @@ export function isSelfServeMode(): boolean {
 export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Promise<{ mode: ModeName; roles: { name: string; label: string }[] }> {
   if (listJobs().some((j) => j.state === 'running' || j.state === 'queued'))
     throw new Error('存在 running/queued 作业，请等作业收尾后再切换模式')
-  let targets: { name: string; label: string }[] = []
+  let targets: { name: string; label: string; prompt?: string }[] = []
   if (opts.mode === 'headless') {
     // 角色维护口径统一在预设：优先激活预设的 roles，无预设文件时回退 DSH_HEADLESS_ROLES
     targets = activePresetRoles()
@@ -123,10 +123,16 @@ export async function applyMode(opts: { mode: ModeName; roles?: string[] }): Pro
     registerDshRoles(targets)
     startDshEvents()
   } else {
-    // mock：预设角色保留其默认 mock 形态（无默认定义的用 mock-dsh L2 兜底）
+    // mock：预设角色保留其默认 mock 形态（无默认定义的用 mock-dsh L2 兜底），提示词与真实角色配置同源
     for (const t of targets) {
       const def = defaultRoleOf(t.name)
-      const role: RoleDef = { name: t.name, harness: def?.harness ?? 'mock-dsh', level: def?.level ?? 'L2', label: t.label }
+      const role: RoleDef = {
+        name: t.name,
+        harness: def?.harness ?? 'mock-dsh',
+        level: def?.level ?? 'L2',
+        label: t.label,
+        prompt: t.prompt ?? def?.prompt,
+      }
       upsertRole(role, createMockAdapter(role))
     }
   }

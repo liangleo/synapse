@@ -51,11 +51,11 @@ export function activePresetName(): string {
   return readState().active
 }
 
-// headless 角色来源：激活预设的 roles（没有激活预设或预设不存在 → 空，由调用方回退）
-export function activePresetRoles(): { name: string; label: string }[] {
+// headless 角色来源：激活预设的 roles（没有激活预设或预设不存在 → 空，由调用方回退）；prompt 供 mock 输出与角色定义透传
+export function activePresetRoles(): { name: string; label: string; prompt?: string }[] {
   const state = readState()
   const p = state.presets[state.active]
-  return Object.entries(p?.roles ?? {}).map(([name, r]) => ({ name, label: r.label || name }))
+  return Object.entries(p?.roles ?? {}).map(([name, r]) => ({ name, label: r.label || name, prompt: r.prompt }))
 }
 
 export function activePipeline(): string[] {

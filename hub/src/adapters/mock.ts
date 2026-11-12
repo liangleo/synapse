@@ -47,7 +47,7 @@ function startRun(job: Job, role: RoleDef, instruction: string): void {
       i++
       timers.set(job.id, setTimeout(tick, 350))
     } else {
-      const result = `【${role.label} · ${role.harness}】任务完成。\n需求：${instruction}\n步骤：\n- ${steps.join('\n- ')}`
+      const result = `【${role.label} · ${role.harness}】任务完成。\n提示词：${role.prompt || '（未配置）'}\n需求：${instruction}\n步骤：\n- ${steps.join('\n- ')}`
       clearInterval(timers.get(job.id))
       timers.delete(job.id)
       emit(job, 'output', { text: result })

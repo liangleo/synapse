@@ -106,7 +106,8 @@ export function ensureAgent(a: PanelAgent): AgentView {
     store.agents.set(a.id, x)
   }
   if (a.role && a.role !== x.role) x.role = a.role
-  x.parent = a.parentId || x.parent
+  // 插件桥发 parentId，hub 适配器发 parent——两者都认
+  x.parent = a.parentId ?? a.parent ?? x.parent
   x.h = a.harness
   return x
 }
