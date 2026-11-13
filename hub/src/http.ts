@@ -9,6 +9,7 @@ import { steer, cancel, dispatch, applyMode, currentMode, isSelfServeMode } from
 import { clearRoleSession, listRoleSessions } from './role-sessions.js'
 import { dshSessionsDir, listAllSessions, readSession } from './history.js'
 import { handlePresetsApi, activePipeline } from './presets.js'
+import { requestApproval, resolveApproval, waitApproval, pendingApprovals } from './approvals.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -153,6 +154,8 @@ export function startHttp(port: number, token: string, panelDist?: string): void
             pipeline: activePipeline(),
             roles: roles.map((r) => ({ name: r.name, label: r.label })),
             roleSessions,
+            // 待审批清单：面板刷新后经此恢复（实时增量走 SSE approval.requested/resolved）
+            approvals: pendingApprovals(),
           }),
         )
       })()
@@ -267,9 +270,44 @@ export function startHttp(port: number, token: string, panelDist?: string): void
       return
     }
 
+    // 审批通道：伴生 MCP 服务发起（request/wait）+ 面板/master 裁决（POST /approval）
+    if (u.pathname === '/approval/request' && authed && req.method === 'POST') {
+      void (async () => {
+        try {
+          const body = JSON.parse(await readBody(req)) as { jobId?: string; role?: string; tool?: string; input?: unknown }
+          const out = requestApproval({ jobId: String(body.jobId ?? ''), role: String(body.role ?? ''), tool: String(body.tool ?? ''), input: body.input })
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(out))
+        } catch (err) {
+          res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end(String(err))
+        }
+      })()
+      return
+    }
+    if (u.pathname === '/approval/wait' && authed && req.method === 'GET') {
+      const id = u.searchParams.get('id') ?? ''
+      const ms = Math.min(Number(u.searchParams.get('timeout') ?? 20), 30) * 1000
+      void (async () => {
+        const decision = await waitApproval(id, ms)
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ decision }))
+      })()
+      return
+    }
+    if (u.pathname === '/approval' && authed && req.method === 'POST') {
+      void (async () => {
+        try {
+          const body = JSON.parse(await readBody(req)) as { id?: string; decision?: string }
+          const ok = resolveApproval(String(body.id ?? ''), body.decision === 'allow' ? 'allow' : 'deny', '面板')
+          if (!ok) return res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('审批不存在或已裁决')
+          res.writeHead(204).end()
+        } catch (err) {
+          res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end(String(err))
+        }
+      })()
+      return
+    }
+
     res.writeHead(404).end()
   })
-  // 面板端口被占（如已有一个 hub 实例）只降级为 MCP-only,不让整个进程崩掉
   server.on('error', (err) => hubLog('ERROR', `面板 HTTP 监听失败（MCP 不受影响）：${String(err)}`))
   server.listen(port, '127.0.0.1', () =>
     process.stderr.write(`[hub] 面板 http://127.0.0.1:${port}/  token=${token}\n`),

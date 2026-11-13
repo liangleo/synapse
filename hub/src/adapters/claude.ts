@@ -8,9 +8,14 @@
 // 会话连续：role → session UUID 映射（role-sessions.ts，与 dsh-headless 共用）；
 // 首跑生成 UUID 以 --session-id 固定，续跑用 --resume <uuid> 继承同一会话上下文。
 // L1 语义：无头模式不支持运行中 steer（重新 dispatch）；cancel = 杀进程；
-// 权限用默认策略——需要审批的工具调用在无头下自动被拒（与 dsh --approval-policy never 同语义）。
+// 审批通道（默认开启，CLAUDE_APPROVAL=0 关闭）：需要审批的工具调用经 --permission-prompt-tool
+// 转给伴生 MCP 服务（approval-mcp.ts）→ hub /approval/* → 面板或 master 裁决；超时自动拒绝。
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Job, PanelEvent } from '../types.js'
 import { emitEvent } from '../bus.js'
 import { addJobAction, addJobLog, setJobState } from '../jobs.js'
@@ -32,6 +37,10 @@ function cleanEnv(): NodeJS.ProcessEnv {
 // 运行中作业（每角色并发 1 由调度器保证）→ 子进程
 const childByJob = new Map<string, ChildProcess>()
 
+// 审批通道：伴生 MCP 服务（编译产物与适配器同目录）+ 每作业临时 --mcp-config（退出时清理）
+const APPROVAL_ON = process.env.CLAUDE_APPROVAL !== '0'
+const APPROVAL_MCP_JS = fileURLToPath(new URL('approval-mcp.js', import.meta.url))
+
 function emit(job: Job, type: PanelEvent['type'], pl: Record<string, unknown>): void {
   emitEvent({ type, t: Date.now(), agent: { id: job.id, role: job.role, parent: 'master', harness: 'claude' }, pl })
 }
@@ -40,20 +49,47 @@ function startJob(job: Job): void {
   const sid = roleSession('claude', job.role)
   // 首跑用 --session-id 固定身份（claude 要求 UUID），续跑用 --resume 继承会话上下文
   const sessionFlag = sid ? `--resume ${sid}` : `--session-id ${sid || randomUUID()}`
-  const cmdline = `${CLAUDE_CMD} ${sessionFlag}`
+  let cmdline = `${CLAUDE_CMD} ${sessionFlag}`
+  const env = cleanEnv()
+  let approvalCfg: string | undefined
+  if (APPROVAL_ON) {
+    approvalCfg = join(tmpdir(), `synapse-approval-${job.id}.json`)
+    writeFileSync(
+      approvalCfg,
+      JSON.stringify({
+        mcpServers: {
+          synapse_approval: {
+            command: 'node',
+            args: [APPROVAL_MCP_JS],
+            env: {
+              HUB_APPROVAL_URL: `http://127.0.0.1:${process.env.HUB_PORT || 3182}`,
+              HUB_APPROVAL_TOKEN: process.env.HUB_TOKEN ?? '',
+              HUB_APPROVAL_TIMEOUT_SEC: process.env.HUB_APPROVAL_TIMEOUT_SEC ?? '',
+              JOB_ID: job.id,
+              JOB_ROLE: job.role,
+            },
+          },
+        },
+      }),
+    )
+    cmdline += ` --mcp-config ${approvalCfg} --permission-prompt-tool mcp__synapse_approval__request_permission`
+    addJobLog(job.id, '审批通道已开启（面板/MCP approval_respond 裁决，超时自动拒绝）')
+  }
   addJobLog(job.id, `派发 → claude headless（${sid ? `续会话 ${sid.slice(0, 12)}…` : '新建会话'}）`)
   emit(job, 'turn.started', { turn: 1 })
 
   let child: ChildProcess
   try {
     // worktree 隔离时 job.cwd 指向 hub 建好的 worktree；未隔离则继承 hub 进程 cwd
-    child = spawn(cmdline, { shell: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: job.cwd, env: cleanEnv() })
+    child = spawn(cmdline, { shell: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: job.cwd, env })
   } catch (err) {
+    if (approvalCfg) rmSync(approvalCfg, { force: true })
     failJob(job, `spawn 失败：${String(err)}`)
     return
   }
   childByJob.set(job.id, child)
   child.stdin?.end(job.instruction)
+  child.on('exit', () => rmSync(approvalCfg ?? '', { force: true }))
 
   let buf = ''
   child.stdout?.on('data', (chunk: Buffer) => {

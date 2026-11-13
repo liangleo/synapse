@@ -10,6 +10,8 @@ export type PanelEventType =
   | 'tool.finished'
   | 'output'
   | 'task.claimed'
+  | 'approval.requested'
+  | 'approval.resolved'
   | 'workflow.done'
   | 'command.unsupported'
 

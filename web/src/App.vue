@@ -75,6 +75,22 @@ watch(
   },
 )
 
+// 审批裁决：claude headless 经伴生 MCP 服务回调（approval.requested）；本地先行移除，hub 的
+// approval.resolved 事件再统一收敛（幂等）
+async function respond(id: string, decision: 'allow' | 'deny'): Promise<void> {
+  const r = await api('/approval', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id, decision }),
+  })
+  if (!r.ok && r.status !== 404) {
+    store.status = `审批提交失败：${await r.text()}`
+    store.statusOk = false
+    return
+  }
+  store.approvals = store.approvals.filter((a) => a.id !== id)
+}
+
 onMounted(() => {
   // 初始化元信息：当前预设、流水线、预置角色（失败不影响主流程）
   fetch(apiBase() + '/meta')
@@ -82,6 +98,7 @@ onMounted(() => {
     .then((m) => {
       if (m) {
         m.roleSessions = normalizeRoleSessions(m.roleSessions)
+        if (Array.isArray(m.approvals)) store.approvals = m.approvals
         Object.assign(store.meta, m)
       }
     })
@@ -182,6 +199,16 @@ onUnmounted(() => es?.close())
   <EventLog v-if="drawer === 'ev'" class="dock" @close="drawer = ''" />
   <main>
     <section>
+      <div v-if="store.approvals.length" class="approvals">
+        <div v-for="a in store.approvals" :key="a.id" class="ap-row">
+          <span class="ap-what">
+            <b>{{ displayName(a.role) || a.role }}</b> 请求调用 <code>{{ a.tool }}</code>
+          </span>
+          <code class="ap-input" :title="a.input">{{ a.input }}</code>
+          <button class="ap-btn ok" @click="respond(a.id, 'allow')">允许</button>
+          <button class="ap-btn" @click="respond(a.id, 'deny')">拒绝</button>
+        </div>
+      </div>
       <div class="grid">
         <AgentCard v-for="x in agentList" :key="x.id" :agent="x" :step="stepOf(x.role)" />
       </div>

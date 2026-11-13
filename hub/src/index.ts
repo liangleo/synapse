@@ -18,6 +18,8 @@ import { loadMode } from './mode.js'
 
 const port = Number(process.env.HUB_PORT || 3182)
 const token = process.env.HUB_TOKEN || randomBytes(12).toString('hex')
+// 回写 env：审批伴生 MCP 服务（claude.ts 生成 --mcp-config 时）需要拿到同一个 token
+process.env.HUB_TOKEN = token
 // 面板静态产物：仓库根的 dist/static（pnpm build 生成）
 const here = fileURLToPath(new URL('.', import.meta.url))
 const panelDist = resolve(here, '../../dist/static')

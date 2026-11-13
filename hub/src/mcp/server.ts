@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { DEFAULT_ROLES as roles } from '../registry.js'
 import { dispatch, steer, cancel, summaryOf } from '../orchestrate.js'
 import { getJob, listJobs, waitFor } from '../jobs.js'
+import { pendingApprovals, resolveApproval } from '../approvals.js'
 import type { Job } from '../types.js'
 
 const INSTRUCTIONS = `你是多 agent 编排 master。规程：
@@ -186,6 +187,24 @@ export async function startMcp(): Promise<void> {
       if (!job) return { isError: true, content: [{ type: 'text' as const, text: `未找到作业：${jobId}` }] }
       cancel(jobId, job.role)
       return jsonOf({ jobId, cancelled: true })
+    },
+  )
+
+  server.registerTool(
+    'approval_respond',
+    {
+      title: '响应审批',
+      description:
+        '对子 agent 的权限审批请求作出裁决（破坏性）。审批经 approval.requested 事件 / task_status 的 recentActions 感知，也可由人工在面板裁决；无人裁决超时自动拒绝。',
+      inputSchema: {
+        approvalId: z.string().describe('审批 id（approval.requested 事件 pl.approvalId）'),
+        decision: z.enum(['allow', 'deny']).describe('allow=放行该次工具调用；deny=拒绝'),
+      },
+    },
+    async ({ approvalId, decision }) => {
+      if (!resolveApproval(approvalId, decision, 'master（MCP）'))
+        return { isError: true, content: [{ type: 'text' as const, text: `审批不存在或已裁决：${approvalId}` }] }
+      return jsonOf({ approvalId, decision })
     },
   )
 

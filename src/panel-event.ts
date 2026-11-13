@@ -5,6 +5,7 @@ export interface PanelAgent {
   id: string
   role?: string
   parentId?: string
+  parent?: string // hub 适配器的父节点字段（与插件桥的 parentId 同义，store 两者都认）
   harness: Harness
 }
 
@@ -20,6 +21,7 @@ export type PanelEventType =
   | 'output'
   | 'task.claimed'
   | 'approval.requested'
+  | 'approval.resolved'
   | 'command.unsupported'
   | 'workflow.done'
 

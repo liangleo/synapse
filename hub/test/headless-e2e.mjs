@@ -72,6 +72,7 @@ const proc = spawn('node', ['dist/index.js'], {
     HUB_PRESETS_FILE: join(stateDir, 'presets.json'),
     HUB_JOBS_DB: join(stateDir, 'jobs.db'),
     HUB_JOB_TIMEOUT_SEC: '2',
+    HUB_APPROVAL_TIMEOUT_SEC: '3',
     STUB_STATE: stateDir,
   },
 })
@@ -271,6 +272,82 @@ const blockedPreset = await api('/presets/p2', { method: 'PUT', headers: { 'cont
 check('活动作业时改预设被拒（409）', blockedPreset.status === 409, String(blockedPreset.status))
 const blocked = await api('/mode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'mock' }) })
 check('活动作业时切换被拒（400）', blocked.status === 400 && (await blocked.text()).includes('running/queued'), String(blocked.status))
+
+// 10. 审批通道：登记 → 面板裁决 / MCP approval_respond → 长轮询 / 超时 / 作业终态自动拒绝（宿主 = d5 sleep 作业）
+const apHeaders = { 'content-type': 'application/json' }
+const apReq = (jobId) =>
+  api('/approval/request', {
+    method: 'POST',
+    headers: apHeaders,
+    body: JSON.stringify({ jobId, role: 'dev-c', tool: 'Bash', input: { command: 'echo hi' } }),
+  }).then((r) => r.json())
+const apJob = d5.structuredContent?.jobId
+const ap1 = await apReq(apJob)
+check('审批登记返回 id', Boolean(ap1.id), JSON.stringify(ap1))
+const apWait = api(`/approval/wait?id=${ap1.id}&timeout=5`).then((r) => r.json())
+await sleep(150)
+check('面板裁决 204', (await api('/approval', { method: 'POST', headers: apHeaders, body: JSON.stringify({ id: ap1.id, decision: 'allow' }) })).status === 204)
+check('wait 长轮询取回 allow', (await apWait).decision === 'allow')
+
+const ap2 = await apReq(apJob)
+const apResp = await callTool('approval_respond', { approvalId: ap2.id, decision: 'deny' })
+check('MCP approval_respond 裁决', apResp.structuredContent?.decision === 'deny', JSON.stringify(apResp))
+check('已裁决再裁决 404', (await api('/approval', { method: 'POST', headers: apHeaders, body: JSON.stringify({ id: ap2.id, decision: 'allow' }) })).status === 404)
+
+const ap3 = await apReq(apJob)
+await sleep(3400) // HUB_APPROVAL_TIMEOUT_SEC=3
+check('超时自动拒绝', (await (await api(`/approval/wait?id=${ap3.id}&timeout=1`)).json()).decision === 'deny')
+
+const ap4 = await apReq(apJob)
+const apJob2 = await callTool('task_cancel', { jobId: apJob })
+check('作业 cancel 后待审批自动拒绝', apJob2.structuredContent?.cancelled === true && (await (await api(`/approval/wait?id=${ap4.id}&timeout=1`)).json()).decision === 'deny', JSON.stringify(apJob2))
+const apMeta0 = await (await api('/meta')).json()
+check('/meta 下发 approvals 数组', Array.isArray(apMeta0.approvals), '')
+
+// 伴生 MCP 服务全链路：spawn approval-mcp.js（claude --permission-prompt-tool 的回调端点）→ /meta 找到审批 → 面板 allow
+const d6 = await callTool('task_dispatch', { role: 'dev-c', instruction: 'sleep 等伴生审批' })
+await sleep(200)
+const compRes = new Map()
+let compBuf = ''
+const comp = spawn('node', ['dist/adapters/approval-mcp.js'], {
+  stdio: ['pipe', 'pipe', 'pipe'],
+  env: {
+    ...process.env,
+    HUB_APPROVAL_URL: 'http://127.0.0.1:3194',
+    HUB_APPROVAL_TOKEN: hubToken,
+    HUB_APPROVAL_TIMEOUT_SEC: '10',
+    JOB_ID: d6.structuredContent?.jobId,
+    JOB_ROLE: 'dev-c',
+  },
+})
+comp.stdout.on('data', (d) => {
+  compBuf += d.toString()
+  let i
+  while ((i = compBuf.indexOf('\n')) >= 0) {
+    const line = compBuf.slice(0, i)
+    compBuf = compBuf.slice(i + 1)
+    try {
+      const msg = JSON.parse(line)
+      if (msg.id !== undefined) compRes.set(msg.id, msg.result)
+    } catch {
+      /* 忽略 */
+    }
+  }
+})
+comp.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } })}\n`)
+comp.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
+comp.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'request_permission', arguments: { tool_name: 'Bash', input: { command: 'echo from-companion' } } } })}\n`)
+await sleep(400) // 伴生已向 hub 登记（tools/call 阻塞等裁决，响应要等面板批准后才回）
+const apComp = ((await (await api('/meta')).json()).approvals ?? []).find((a) => a.tool === 'Bash')
+check('伴生服务登记审批', Boolean(apComp), '')
+await api('/approval', { method: 'POST', headers: apHeaders, body: JSON.stringify({ id: apComp.id, decision: 'allow' }) })
+for (let n = 0; n < 50 && !compRes.has(2); n++) await sleep(100)
+const verdict = JSON.parse(compRes.get(2)?.content?.[0]?.text ?? '{}')
+check('伴生返回 allow + 原样入参', verdict.behavior === 'allow' && verdict.updatedInput?.command === 'echo from-companion', JSON.stringify(verdict))
+check('伴生 MCP initialize 握手', compRes.get(1)?.serverInfo?.name === 'synapse-approval', JSON.stringify(compRes.get(1)))
+comp.kill()
+await callTool('task_cancel', { jobId: d6.structuredContent?.jobId })
+
 await callTool('task_cancel', { jobId: d5.structuredContent?.jobId })
 const swMock = await api('/mode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'mock' }) })
 check('cancel 后可切 mock', swMock.status === 200, String(swMock.status))

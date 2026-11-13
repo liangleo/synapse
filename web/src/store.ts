@@ -30,6 +30,16 @@ export interface EvRow {
   outputOnly?: boolean
 }
 
+// 待审批请求（hub 审批通道：claude headless 经 --permission-prompt-tool 回调）
+export interface ApprovalView {
+  id: string
+  jobId: string
+  role: string
+  tool: string
+  input: string
+  t: number
+}
+
 export const STATUS_LABEL: Record<AgentStatus, string> = {
   idle: '待机',
   thinking: '思考',
@@ -45,6 +55,8 @@ export const store = reactive({
   sel: null as string | null,
   status: '连接中…',
   statusOk: false,
+  // 待审批请求（实时增量走 SSE；整页刷新后由 /meta.approvals 恢复）
+  approvals: [] as ApprovalView[],
   // 指令栏草稿（点卡片时回填角色名）
   cmd: { to: '', taskId: '', text: '' },
   // 已知 session 清单：taskId → 最后活动时间（来自 task.claimed/turn.ended/workflow.done）
@@ -159,6 +171,25 @@ function applyEvent(e: PanelEvent, x: AgentView): void {
     case 'command.unsupported':
       pushLog(x, `该 harness 不支持：${String(p.cmd)}`, e.t)
       break
+    case 'approval.requested': {
+      const id = String(p.approvalId ?? '')
+      if (id && !store.approvals.some((a) => a.id === id))
+        store.approvals.unshift({
+          id,
+          jobId: e.agent.id,
+          role: e.agent.role ?? '',
+          tool: String(p.tool ?? ''),
+          input: typeof p.input === 'string' ? p.input : JSON.stringify(p.input ?? {}).slice(0, 200),
+          t: e.t,
+        })
+      pushLog(x, `等待审批：${String(p.tool ?? '')}`, e.t)
+      break
+    }
+    case 'approval.resolved': {
+      store.approvals = store.approvals.filter((a) => a.id !== String(p.approvalId))
+      pushLog(x, `审批${p.decision === 'allow' ? '允许' : '拒绝'}（${String(p.via ?? '')}）`, e.t)
+      break
+    }
   }
 }
 
@@ -214,6 +245,7 @@ export function handleEvent(e: PanelEvent): void {
 export function resetStore(): void {
   store.agents.clear()
   store.events = []
+  store.approvals = []
   store.sel = null
   store.cmd.taskId = ''
 }

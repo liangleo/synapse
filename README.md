@@ -139,7 +139,8 @@ dsh 会话事件 ──> 插件（session/event、agent/*）──> PanelEvent �
 | `output`              | `text`                                   | 流式文字增量（`text-delta`）      |
 | `task.claimed`        | `taskId`、`turn`                         | 任务被某个 agent 接手             |
 | `workflow.done`       | `taskId`、`status`、`steps`              | 流水线结束（`done` / `failed`）   |
-| `approval.requested`  | —                                        | 预留（审批类 harness 用）         |
+| `approval.requested`  | `approvalId`、`tool`、`input`            | 权限审批请求（claude headless 审批通道） |
+| `approval.resolved`   | `approvalId`、`decision`、`via`          | 裁决结果（面板 / master / 超时自动拒绝） |
 | `command.unsupported` | —                                        | 适配器不支持该指令                |
 
 指令类型（`PanelCommand`）：`task.assigned` / `review.requested` / `task.rejected` / `task.cancel`，字段 `{ type, to, taskId?, text? }`，`to` 是角色名。
@@ -293,10 +294,12 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 | `task_status` / `task_wait` | 查询状态 / 阻塞等待（≤120s） |
 | `task_result` | 取产出（summary 截断，完整日志走 `panel://jobs/{id}/log` 资源） |
 | `task_steer` / `task_cancel` | 中途改向 / 取消（L1 角色 steer 返回 UNSUPPORTED，只能重新 dispatch） |
+| `approval_respond` | 对子 agent 的权限审批作出裁决（allow / deny；无人裁决超时自动拒绝，也可在面板点允许/拒绝） |
 
 - **fromJobs 交接**：派发时声明上游 jobId，hub 自动把上游产出注入 instruction（带不可信输入边界标记），LLM 不搬运文本。
 - **prompt 模板** `orchestrate-feature`：功能需求 → 拆解并行派发 → worktree 隔离 → 评审 → 测试 → 汇总分支清单。
 - **作业持久化**：node:sqlite 写穿（默认 `~/.synapse-agent-panel/hub-jobs.db`），重启恢复历史作业与日志；`HUB_JOB_TIMEOUT_SEC` 超时自动 cancel。
+- **审批通道**（claude 模式，`CLAUDE_APPROVAL=0` 关闭）：子 claude 以 `--permission-prompt-tool` 挂伴生 MCP 服务（`approval-mcp.ts`），权限门回调 → hub `/approval/request` → 面板审批条「允许/拒绝」或 master `approval_respond` 裁决 → 长轮询取回决定。`HUB_APPROVAL_TIMEOUT_SEC`（默认 120s）无人裁决自动拒绝；作业取消/结束也自动拒绝。codex exec 与 dsh headless 无审批回调，需要审批的调用维持自动拒绝语义。
 
 **接入模式**（面板下拉或 `GET/POST /mode` 运行中切换，有在途作业时拒绝）：
 
@@ -305,7 +308,7 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 | `mock` | 内置模拟角色（mock-dsh / mock-codex 为 L2，mock-claude 为 L1） | L2 可 |
 | `plugin` | 转 dsh desktop 插件 HTTP（`DSH_PANEL_URL` + `DSH_PANEL_TOKEN`，角色从插件 /meta 自动发现） | 可 |
 | `headless` | spawn `dsh --profile headless --json`（本机或 `ssh` 远机，`DSH_HEADLESS_CMD`），无 desktop 参与，L1 | 不可 |
-| `claude` | spawn `claude -p --output-format stream-json`（`CLAUDE_CMD` 可换绝对路径），L1；需本机 claude CLI 已登录 | 不可 |
+| `claude` | spawn `claude -p --output-format stream-json`（`CLAUDE_CMD` 可换绝对路径），L1；需本机 claude CLI 已登录；审批通道默认开启（见下） | 不可 |
 | `codex` | spawn `codex exec --json --sandbox workspace-write`（`CODEX_CMD` 可换），L1；产出=最后一次 agent_message | 不可 |
 
 headless / claude / codex 模式下 hub 自管 role→session 映射（按 harness 分域，`HUB_ROLE_SESSIONS`）实现会话连续、自服务 `/history` `/role-session` `/presets`（预设与 dsh desktop 插件共用 `presets.json`，角色统一从激活预设维护）。
@@ -441,4 +444,4 @@ headless / claude / codex 模式下 hub 自管 role→session 映射（按 harne
 
 两种切换方式：**部署期**——同一时刻跑一个适配器，面板用 `VITE_PANEL_TARGET`/`panelHtml` 指向对应端口；**运行时并存**——多个适配器接入控制面 hub（已实现），`/events` 合流、`/command` 按 `agent.harness` 路由，面板无需改动。
 
-写新适配器的四个映射点：CLI 生命周期事件 → `turn.started/step.started/turn.ended`；工具调用 → `tool.started/finished`；输出流 → `output`（建议 150ms 合并）；消息归属 → message→taskId 映射出 `task.claimed`。审批类事件映射到预留的 `approval.requested`。
+写新适配器的四个映射点：CLI 生命周期事件 → `turn.started/step.started/turn.ended`；工具调用 → `tool.started/finished`；输出流 → `output`（建议 150ms 合并）；消息归属 → message→taskId 映射出 `task.claimed`。有实时审批回调的 harness（如 claude 的 `--permission-prompt-tool`）映射到 `approval.requested` + hub `/approval/*` 端点；无回调的 harness 维持自动拒绝语义。

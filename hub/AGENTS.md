@@ -52,6 +52,7 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 - `HUB_ROLE_SESSIONS`（角色→会话映射文件，dsh-headless 与 claude 共用）
 - `HUB_JOBS_DB`（默认 ~/.synapse-agent-panel/hub-jobs.db，作业 SQLite 存储：重启恢复历史、运行中作业重启标记 failed）
 - `HUB_JOB_TIMEOUT_SEC`（单作业超时秒数，默认 0 不启用；到时自动 cancel 防 run 飞占住并发槽）
+- `CLAUDE_APPROVAL`（claude 模式审批通道开关，默认开启，置 0 关闭）、`HUB_APPROVAL_TIMEOUT_SEC`（审批无人裁决的超时秒数，默认 120，到时自动拒绝）
 - `SYNAPSE_REPO_ROOT`（worktree 隔离的仓库根，默认 hub 进程 cwd）、`SYNAPSE_ALLOWED_CWDS`（逗号分隔白名单，限制仓库根可选范围，未设不限）
 - `PANEL_DIST` 默认 `../../dist/static`（仓库根 pnpm build 的产物）
 
@@ -60,10 +61,10 @@ node test/integ-drive.mjs # 手动集成驱动：配 DSH_PANEL_URL/DSH_PANEL_TOK
 - **worktree 隔离**：task_dispatch 传 `worktree: true`（仅支持 job.cwd 的适配器，headless 支持）→ 仓库根建 `synapse/<jobId>` 分支 worktree，子 agent 在分支上干活，作业状态回传 worktreeBranch；合并仍由 master 人工确认
 - **作业持久化**：node:sqlite 写穿（jobs/job_lines 两表），task_status/task_result/资源日志重启后可用
 - **Codex 适配器**：模式切到 `codex`，角色来自激活预设；沙箱 workspace-write；产出=最后一次 agent_message
-- **Claude Code 适配器**：模式切到 `claude`（面板下拉或 POST /mode），角色同样来自激活预设；权限走默认策略——需审批的工具在无头下自动被拒；嵌套环境变量（CLAUDECODE/CLAUDE_CODE_*）已净化
+- **Claude Code 适配器**：模式切到 `claude`（面板下拉或 POST /mode），角色同样来自激活预设；嵌套环境变量（CLAUDECODE/CLAUDE_CODE_*）已净化
 - **MCP prompt**：`orchestrate-feature` 模板——功能需求 → 拆解并行派发 → worktree 隔离 → 评审 → 测试 → 汇总分支清单
 - **防注入**：fromJobs 注入的上游产出用不可信输入边界标记包裹
-- **审批（approval_respond）**：延后——headless 无实时审批通道（`--approval-policy never` 自动拒绝），dsh desktop 插件审批桥接待 dsh 侧方案
+- **审批通道**（approvals.ts）：claude 模式默认开启（`CLAUDE_APPROVAL=0` 关闭）——子 claude 经 `--permission-prompt-tool` 挂伴生 MCP 服务（adapters/approval-mcp.ts，env 注入 hub 地址/token/作业身份），权限门 → `/approval/request` → 面板审批条或 MCP `approval_respond` 裁决 → `/approval/wait` 长轮询取回；`HUB_APPROVAL_TIMEOUT_SEC`（默认 120s）与作业终态自动拒绝。codex exec / dsh headless 无审批回调，维持自动拒绝；dsh desktop 插件审批桥接待 dsh 侧方案
 
 ## dsh 接入模式（运行中切换）
 

@@ -68,7 +68,7 @@
 - [x] SQLite 作业存储：node:sqlite 写穿（jobs/job_lines），重启恢复历史作业与日志，running/queued 重启标记 failed（HUB_JOBS_DB）
 - [x] 限制强化：单作业超时 HUB_JOB_TIMEOUT_SEC（到时自动 cancel）；fromJobs 上游产出加不可信输入边界包装；空指令入口拒绝
 - [x] MCP prompt 模板：`orchestrate-feature`（拆解 → 并行派发 → worktree → 评审 → 测试 → 汇总分支清单）
-- [ ] approval_respond + approval.requested：**延后**——headless 无实时审批通道（dsh README 明确 "Headless has no live approval-response channel"），dsh desktop 插件审批桥接需 dsh user-approval 服务方案，待适配模式稳定后评估
+- [x] approval_respond + approval.requested：claude headless 审批通道已落地（2026-11-13）——子 claude 经 `--permission-prompt-tool` 挂伴生 MCP 服务（approval-mcp.ts）回调 hub `/approval/request`，面板审批条或 MCP `approval_respond` 裁决，`/approval/wait` 长轮询取回；超时 / 作业终态自动拒绝。codex exec 与 dsh headless 无审批回调仍自动拒绝；dsh desktop 插件审批桥接待 dsh 侧方案
 
 ## 遗留待核对清单（真机验证时逐项清掉）
 
