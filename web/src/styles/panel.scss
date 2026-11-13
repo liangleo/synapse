@@ -350,6 +350,10 @@ main {
     border: 1px solid var(--bd);
     border-radius: 5px;
     padding: 0 6px;
+    max-width: 64px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .pill {

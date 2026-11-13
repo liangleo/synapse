@@ -61,7 +61,7 @@ function toggleSel(): void {
       </span>
       <b :title="agent.role">{{ displayName(agent.role) || nm(agent) }}</b>
       <span v-if="step" class="hb" title="流水线步骤">#{{ step }}</span>
-      <span class="hb">{{ agent.h ?? '' }}</span>
+      <span v-if="agent.h && !agent.h.startsWith('mock')" class="hb" :title="agent.h">{{ agent.h }}</span>
       <span class="pill" :data-s="agent.s">{{ STATUS_LABEL[agent.s] }}</span>
     </div>
     <div class="job">{{ agent.job }}</div>
