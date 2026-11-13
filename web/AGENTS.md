@@ -7,12 +7,12 @@
 ```
 src/
   main.ts           createApp + 全局样式
-  App.vue           布局：顶栏（状态/预设/模式/后端切换）+ 卡片网格（流水线序排序）；低频面板统一弹出层（事件日志/服务端日志吸附右侧，会话管理居中浮层，预设编辑居中弹窗）
-  store.ts          全局响应式状态：agents/sessions/events/meta/cmd；handleEvent 是唯一事件入口
+  App.vue           布局：顶栏（状态/预设/模式/后端切换）+ 审批条（有待审批时显示，允许/拒绝）+ 卡片网格（流水线序排序）；低频面板统一弹出层（事件日志/服务端日志吸附右侧，会话管理居中浮层，预设编辑居中弹窗）
+  store.ts          全局响应式状态：agents/sessions/events/approvals/meta/cmd；handleEvent 是唯一事件入口
   conn.ts           后端连接：base/token 按 localStorage 记忆，api()/sendCommand() 统一前缀与鉴权
   util.ts           col（按 id 稳定配色）/nm/hm
   components/
-    AgentCard.vue       agent 卡片（状态/进度/卡片级打回中断按钮）
+    AgentCard.vue       agent 卡片（状态/进度/卡片级打回中断按钮；harness 徽标仅真实 harness 显示，mock 卡隐藏）
     CommandBar.vue      指令栏（角色下拉 + session 下拉 + 动作按钮）
     EventLog.vue        事件日志（右侧吸附弹层；点卡片自动弹出并按角色过滤，Markdown 渲染在历史对话）
     LogPanel.vue        服务端日志面板（3s 轮询 /logs，最新置顶）

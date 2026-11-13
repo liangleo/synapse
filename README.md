@@ -313,7 +313,7 @@ master 收到任务 → 依次创建各角色为运行时子 agent（`parentAgen
 
 headless / claude / codex 模式下 hub 自管 role→session 映射（按 harness 分域，`HUB_ROLE_SESSIONS`）实现会话连续、自服务 `/history` `/role-session` `/presets`（预设与 dsh desktop 插件共用 `presets.json`，角色统一从激活预设维护）。
 
-**测试**：`node hub/test/mcp-e2e.mjs`（MCP 全链路 16 项）、`hub/test/dsh-e2e.mjs`（插件适配器 12 项）、`hub/test/headless-e2e.mjs`（headless 44 项）、`hub/test/headless-real.mjs`（真机验收，需 headless 凭据）、`hub/test/claude-e2e.mjs`（claude 适配器 11 项）、`hub/test/claude-real.mjs`（真机验收）、`hub/test/codex-e2e.mjs`（codex 适配器 11 项）、`hub/test/codex-real.mjs`（真机验收）。
+**测试**：`node hub/test/mcp-e2e.mjs`（MCP 全链路 16 项）、`hub/test/dsh-e2e.mjs`（插件适配器 12 项）、`hub/test/headless-e2e.mjs`（headless 57 项，含审批通道）、`hub/test/headless-real.mjs`（真机验收，需 headless 凭据）、`hub/test/claude-e2e.mjs`（claude 适配器 11 项）、`hub/test/claude-real.mjs`（真机验收）、`hub/test/codex-e2e.mjs`（codex 适配器 11 项）、`hub/test/codex-real.mjs`（真机验收）。
 
 ## 面板功能
 

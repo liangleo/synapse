@@ -32,7 +32,7 @@ pnpm install && pnpm build
 pnpm start               # 面板 :3182 + MCP stdio；日志走 stderr
 node test/mcp-e2e.mjs    # 端到端 16 项断言（stdio JSONRPC 全链路，模拟适配器）
 node test/dsh-e2e.mjs    # dsh 适配器 12 项断言（内置假 dsh 后端，同插件 HTTP 契约）
-node test/headless-e2e.mjs # dsh-headless 适配器 44 项断言（stub 事件流 + 假会话目录 + 模式切换/预设/worktree/SQLite 持久化/超时/claude/codex 历史）
+node test/headless-e2e.mjs # dsh-headless 适配器 57 项断言（stub 事件流 + 假会话目录 + 模式切换/预设/worktree/SQLite 持久化/超时/审批通道/claude/codex 历史）
 node test/headless-real.mjs # headless 真机验收：真 dsh CLI 跑一单含工具调用的作业（需 headless 凭据）
 node test/claude-e2e.mjs   # Claude Code 适配器 11 项断言（stub stream-json）
 node test/codex-e2e.mjs    # Codex 适配器 11 项断言（stub JSONL）

@@ -57,6 +57,11 @@
 
 ## M5 — 强化（M3/M4 跳过，先做本节）
 
+- [x] worktree 隔离：task_dispatch `worktree: true` → 仓库根建 `synapse/<jobId>` 分支 worktree，headless 子进程以 worktree 为 cwd，作业回传 worktreeBranch；SYNAPSE_REPO_ROOT / SYNAPSE_ALLOWED_CWDS 白名单
+- [x] SQLite 作业存储：node:sqlite 写穿（jobs/job_lines），重启恢复历史作业与日志，running/queued 重启标记 failed（HUB_JOBS_DB）
+- [x] 限制强化：单作业超时 HUB_JOB_TIMEOUT_SEC（到时自动 cancel）；fromJobs 上游产出加不可信输入边界包装；空指令入口拒绝
+- [x] MCP prompt 模板：`orchestrate-feature`（拆解 → 并行派发 → worktree → 评审 → 测试 → 汇总分支清单）
+
 ## UI 布局重构 + 面板打磨（2026-11-12）
 
 - [x] 弹出层体系：事件日志/服务端日志吸附右侧（点角色卡片自动弹出事件日志并按角色过滤，顶栏按钮手动打开）、会话管理居中浮层（resize 原生拖拽调宽高）、预设编辑居中弹窗；全部带 ✕ 关闭（预设编辑 ✕ 贴工具条最右）
@@ -64,11 +69,12 @@
 - [x] 历史对话 Markdown 渲染（marked + DOMPurify 净化）、「历史对话」小标题与内容留白、窗口加宽 760px
 - [x] mock-server 静态 MIME 修复（扩展名从文件路径取，访问 / 不再弹下载）；补 .svg/.json 类型
 
-- [x] worktree 隔离：task_dispatch `worktree: true` → 仓库根建 `synapse/<jobId>` 分支 worktree，headless 子进程以 worktree 为 cwd，作业回传 worktreeBranch；SYNAPSE_REPO_ROOT / SYNAPSE_ALLOWED_CWDS 白名单
-- [x] SQLite 作业存储：node:sqlite 写穿（jobs/job_lines），重启恢复历史作业与日志，running/queued 重启标记 failed（HUB_JOBS_DB）
-- [x] 限制强化：单作业超时 HUB_JOB_TIMEOUT_SEC（到时自动 cancel）；fromJobs 上游产出加不可信输入边界包装；空指令入口拒绝
-- [x] MCP prompt 模板：`orchestrate-feature`（拆解 → 并行派发 → worktree → 评审 → 测试 → 汇总分支清单）
-- [x] approval_respond + approval.requested：claude headless 审批通道已落地（2026-11-13）——子 claude 经 `--permission-prompt-tool` 挂伴生 MCP 服务（approval-mcp.ts）回调 hub `/approval/request`，面板审批条或 MCP `approval_respond` 裁决，`/approval/wait` 长轮询取回；超时 / 作业终态自动拒绝。codex exec 与 dsh headless 无审批回调仍自动拒绝；dsh desktop 插件审批桥接待 dsh 侧方案
+## 审批通道 + 卡片渲染修复（2026-11-13）
+
+- [x] 审批通道落地：approval_respond + approval.requested——子 claude 经 `--permission-prompt-tool` 挂伴生 MCP 服务（hub approval-mcp.ts，env 注入 hub 地址/token/作业身份）回调 `/approval/request`，面板审批条（卡片网格上方，SSE 实时增减）或 MCP `approval_respond` 裁决，`/approval/wait` 长轮询取回；`HUB_APPROVAL_TIMEOUT_SEC`（默认 120s）与作业终态自动拒绝，`/meta` 下发待审批清单（面板刷新后恢复）。codex exec 与 dsh headless 无审批回调仍自动拒绝；dsh desktop 插件审批桥接待 dsh 侧方案
+- [x] 卡片满宽根因修复（04b401d）：store 只读 `parentId`（插件桥字段名）而 hub 适配器发 `parent`，hub 卡全被误判 master 占满整行——两者都认；无头探针（iframe + 阻塞 load + dump-dom 测宽）定位
+- [x] mock 输出接入真实角色提示词（04b401d）：hub mock 适配器与 :3180 演示后端统一产出「【label · harness】任务完成 + 提示词 + 需求 + 四步骤」，prompt 取激活预设里该角色的配置
+- [x] 角色卡名字竖排修复（e9f50df）：mock 卡 harness 徽标 `mock-<角色全名>`（85px）把首行塞满，名字只剩 13px 被 `overflow-wrap:anywhere` 挤成逐字换行——mock 卡隐藏 harness 徽标（真实 harness claude/codex/dsh 才显示）+ 徽标 max-width/ellipsis 兜底
 
 ## 遗留待核对清单（真机验证时逐项清掉）
 
