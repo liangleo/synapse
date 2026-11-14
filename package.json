@@ -2,6 +2,7 @@
   "name": "synapse-agent-panel",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "多 agent 协作可视化面板：本地 Web 面板 + dsh 事件桥接插件（含 mock server 可独立演示）",
   "type": "module",
   "packageManager": "pnpm@10.34.9",

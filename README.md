@@ -445,3 +445,7 @@ headless / claude / codex 模式下 hub 自管 role→session 映射（按 harne
 两种切换方式：**部署期**——同一时刻跑一个适配器，面板用 `VITE_PANEL_TARGET`/`panelHtml` 指向对应端口；**运行时并存**——多个适配器接入控制面 hub（已实现），`/events` 合流、`/command` 按 `agent.harness` 路由，面板无需改动。
 
 写新适配器的四个映射点：CLI 生命周期事件 → `turn.started/step.started/turn.ended`；工具调用 → `tool.started/finished`；输出流 → `output`（建议 150ms 合并）；消息归属 → message→taskId 映射出 `task.claimed`。有实时审批回调的 harness（如 claude 的 `--permission-prompt-tool`）映射到 `approval.requested` + hub `/approval/*` 端点；无回调的 harness 维持自动拒绝语义。
+
+## License
+
+[MIT](LICENSE)
